@@ -74,6 +74,8 @@ details summary { cursor: pointer; color: var(--accent); }
 details ol { margin: 8px 0 0 18px; padding: 0; }
 kbd { background: var(--chip); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
 .tabs { display: flex; gap: 6px; }
+.codewarn { background: #5c1414; color: #ffd9d4; border: 1px solid #c0392b; border-radius: 8px; padding: 10px 14px; margin: 16px 16px 0; font-weight: 600; }
+li.warn { color: var(--danger); font-weight: 600; }
 .tabs.theme { margin-left: auto; }
 .tabs.theme .tab { padding: 3px 10px; font-size: 12.5px; }
 .tab { border-radius: 999px; padding: 5px 14px; }
@@ -101,6 +103,7 @@ kbd { background: var(--chip); border: 1px solid var(--line); border-radius: 4px
         <button class="tab" data-theme-btn="auto">Auto</button>
     </div>
 </header>
+<div id="codeWarn" class="codewarn" style="display:none"></div>
 <main>
 <div id="appMode">
     <section class="card">
@@ -586,9 +589,13 @@ kbd { background: var(--chip); border: 1px solid var(--line); border-radius: 4px
             catch (e) { lastCode = "// generator error: " + e.message + "\n"; }
             $("appNotesCard").style.display = r.notes.length ? "" : "none";
             $("appNotes").innerHTML = "";
-            r.notes.forEach(n => $("appNotes").appendChild(el("li", { text: n })));
+            r.notes.forEach(n => $("appNotes").appendChild(el("li", { text: n, class: /^(Warning|No shape)/.test(n) ? "warn" : "" })));
+            const bad = r.notes.filter(n => /^(Warning|No shape)/.test(n));
+            $("codeWarn").style.display = bad.length ? "" : "none";
+            $("codeWarn").textContent = bad.join("  ");
         }
         else {
+            $("codeWarn").style.display = "none";
             $("inputHint").textContent = INPUT_HINT[state.input];
             $("fillCard").style.display = state.items.some(it => it.type === "fill" || it.type === "scanfill") ? "" : "none";
             lastCode = G.generate(state);

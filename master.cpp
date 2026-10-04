@@ -2882,6 +2882,10 @@ void buildPanelAt(float scroll) {
 #if F_DDA
         l[n] = "Simple DDA"; id[n] = W_ALGO0 + ALGO_SIMPLE;    ac[n++] = (currentAlgo == ALGO_SIMPLE);
 #endif
+#if !(F_BRES || F_SDDA || F_DDA)
+        y -= 12; addPanelText(px, y, "none in this program - edges are NOT drawn", 1.0f, 0.45f, 0.40f);
+        y -= 12; addPanelText(px, y, "(tick a line algorithm in the builder)", 1.0f, 0.45f, 0.40f);
+#endif
         y = addButtonRows(px, y, pw, bh, gap, n, 3, l, id, ac);
         y -= gap;
     }
@@ -5287,6 +5291,10 @@ int main(int argc, char** argv) {
     std::cout << "  wheel over panel / PgUp PgDn  scroll the panel\n\n";
 
     currentAlgo = algoForShape(currentShape);
+#if F_LINEALGO && !(F_BRES || F_SDDA || F_DDA)
+    logMsg("WARNING: no line algorithm in this program -");
+    logMsg("  lines / polygon edges will not be drawn.");
+#endif
 #if F_FILE
     loadLines();
 #if F_FILL

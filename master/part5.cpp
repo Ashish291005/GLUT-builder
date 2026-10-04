@@ -1986,6 +1986,10 @@ int main(int argc, char** argv) {
     std::cout << "  wheel over panel / PgUp PgDn  scroll the panel\n\n";
 
     currentAlgo = algoForShape(currentShape);
+#if F_LINEALGO && !(F_BRES || F_SDDA || F_DDA)
+    logMsg("WARNING: no line algorithm in this program -");
+    logMsg("  lines / polygon edges will not be drawn.");
+#endif
 #if F_FILE
     loadLines();
 #if F_FILL
