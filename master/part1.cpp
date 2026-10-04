@@ -112,6 +112,7 @@
 #include <utility>
 #if F_FILL
 #include <unordered_set>
+#include <unordered_map>
 #endif
 #if F_TRANSFORM
 #include <map>
@@ -236,19 +237,19 @@ bool shapeEnabled(int s) {
     return false;
 }
 
-struct Pt { float x, y; };
+struct Pt { float x = 0, y = 0; };
 
 struct LineObj {
-    float x0, y0, x1, y1;   /* polygons: bounding box (min, max) */
-    int   shape;
-    int   algo;
-    int   r, g, b;
-    int   thickness;
-    unsigned int pattern;
-    int   patternBits;
-    int   patternScale;
-    bool  deleted;
-    float angle;
+    float x0 = 0, y0 = 0, x1 = 0, y1 = 0;   /* polygons: bounding box (min, max) */
+    int   shape = 0;
+    int   algo = 0;
+    int   r = 0, g = 0, b = 0;
+    int   thickness = 1;
+    unsigned int pattern = 0xFFFF;
+    int   patternBits = 16;
+    int   patternScale = 3;
+    bool  deleted = false;
+    float angle = 0.0f;
     int   group = 0;        /* 0 = ungrouped; shapes sharing an id move together */
 #if F_UNDO
     int   seq = 0;          /* creation order, shared with fills (for undo) */
@@ -299,6 +300,12 @@ enum FillAlgo {
 };
 const char* fillAlgoName[4] = { "Boundary 4", "Boundary 8", "Flood", "Scan-line" };
 
+#if F_SCAN
+/* Scan-line fill keeps one entry per scan line for the animation:
+   which pixels belong to the row and where the row crosses the edges. */
+struct ScanRow { int y = 0; size_t start = 0, end = 0; std::vector<float> xs; };
+#endif
+
 struct FillRegion {
     int seedX = 0, seedY = 0;
     int r = 0, g = 0, b = 0;
@@ -309,17 +316,25 @@ struct FillRegion {
     int seq = 0;
 #endif
     long leakAt = -1;       /* index in pixels of the first escaped pixel, -1 = contained */
-    std::vector<std::pair<int, int>> pixels;
+    std::vector<std::pair<int, int>> pixels;   /* in the order the algorithm coloured them */
+#if F_ANIM
+    std::vector<int> aux;   /* stack size (boundary fill) or queue size (flood fill) per pixel */
+#endif
+#if F_SCAN
+    std::vector<ScanRow> rows;                 /* scan-line fill only */
+#endif
 };
 std::vector<FillRegion> fillRegions;
 #if F_ANIM
 
-/* Fill animation: pixels are revealed in the order the algorithm visited them. */
+/* Fill animation: pixels are revealed in the order the algorithm visited
+   them (scan-line fill: one scan line at a time). */
 int    fillAnimIndex = -1;
-size_t fillAnimCount = 0, fillAnimStep = 1;
-int    fillSpeed = 1;                          /* 0 slow, 1 medium, 2 fast */
-const int fillSpeedFrames[3] = { 900, 300, 90 };
-const char* fillSpeedName[3] = { "Slow", "Medium", "Fast" };
+double fillAnimPos = 0;          /* progress: pixels, or scan lines for scan-line fill */
+double fillAnimRate = 1;         /* progress per timer tick */
+bool   fillAnimPaused = false;   /* Space pauses, Right arrow steps */
+int    fillSpeed = 2;            /* 0 very slow, 1 slow, 2 medium, 3 fast */
+const char* fillSpeedName[4] = { "Very slow", "Slow", "Medium", "Fast" };
 #endif
 
 /* Leak alert: raised when a fill reaches its first escaped pixel. */
@@ -525,7 +540,7 @@ int currentAlgo = DEFAULT_LINE_ALGO;   /* set from the shape in main() */
 
 int curR = 0, curG = 0, curB = 0;      /* line colour */
 #if F_COLOUR
-struct ColourOpt { int r, g, b; const char* name; };
+struct ColourOpt { int r = 0, g = 0, b = 0; const char* name = ""; };
 ColourOpt colourOpts[] = {
     {   0,   0,   0, "Black"   }, { 220,   0,   0, "Red"     },
     {   0, 150,   0, "Green"   }, {   0,  70, 230, "Blue"    },
@@ -543,7 +558,7 @@ unsigned int curPattern = 0xFFFF;
 int curPatternBits = 16;
 int curPatternScale = 3;
 #if F_STYLE
-struct StyleOpt { unsigned int value; int bits; const char* name; };
+struct StyleOpt { unsigned int value = 0; int bits = 0; const char* name = ""; };
 StyleOpt styleOpts[] = {
     { 0xFFFF, 16, "Solid"      }, { 0xA,     4, "Dotted"     },
     { 0xB,     4, "Dash-dot"   }, { 0xC,     4, "Even dash"  },

@@ -160,17 +160,43 @@ void drawFills() {
         size_t n = F.pixels.size();
 #if F_ANIM
         if ((int)i == fillAnimIndex) {
-            /* animating: pixels appear in the order the algorithm visited them;
-               the newest band (the wavefront) is drawn in a lighter tint */
-            size_t shown = std::min(fillAnimCount, n);
-            size_t front = std::min(shown, fillAnimStep * 6);
+            size_t shown = std::min(pixelsShownAt(F, fillAnimPos), n);
+#if F_SCAN
+            if (!F.rows.empty()) {
+                /* scan-line: finished rows, plus the current scan line and its edge crossings */
+                col255(F.r, F.g, F.b);
+                plotFillPixels(F, 0, shown);
+                size_t r = std::min(F.rows.size() - 1, (size_t)std::max(0.0, fillAnimPos - 1.0));
+                const ScanRow& row = F.rows[r];
+                float ly = sy((float)row.y);
+                glColor3f(0.10f, 0.75f, 0.95f);
+                glLineWidth(2.0f);
+                glBegin(GL_LINES); glVertex2f(0, ly); glVertex2f(canvasW(), ly); glEnd();
+                glLineWidth(1.0f);
+                glColor3f(0.90f, 0.10f, 0.10f);
+                for (size_t k = 0; k < row.xs.size(); k++) drawMarker(row.xs[k], (float)row.y, 9.0f);
+                char b[40]; sprintf(b, "y = %d", row.y);
+                glColor3f(0.10f, 0.55f, 0.80f);
+                text(6, ly + 5, b, GLUT_BITMAP_HELVETICA_12);
+                continue;
+            }
+#endif
+            /* pixels appear in the order the algorithm coloured them; the newest
+               band is drawn in a lighter tint and the current pixel is boxed */
+            size_t front = std::min(shown, (size_t)std::max(6.0, fillAnimRate * 6));
             col255(F.r, F.g, F.b);
             plotFillPixels(F, 0, shown - front);
             col255((F.r + 255 * 2) / 3, (F.g + 255 * 2) / 3, (F.b + 255 * 2) / 3);
             plotFillPixels(F, shown - front, shown);
-            if (shown < n) {   /* seed marker */
-                glColor3f(0.9f, 0.1f, 0.1f);
-                drawMarker((float)F.seedX, (float)F.seedY, 6.0f);
+            glColor3f(0.9f, 0.1f, 0.1f);                     /* seed */
+            drawMarker((float)F.seedX, (float)F.seedY, 6.0f);
+            if (shown > 0) {                                 /* current pixel */
+                float cx = sx((float)F.pixels[shown - 1].first), cy = sy((float)F.pixels[shown - 1].second);
+                float h = std::max(6.0f, viewScale);
+                glLineWidth(2.0f);
+                glColor3f(0.0f, 0.0f, 0.0f); rectOutline(cx - h - 1, cy - h - 1, 2 * h + 2, 2 * h + 2);
+                glColor3f(1.0f, 0.95f, 0.2f); rectOutline(cx - h, cy - h, 2 * h, 2 * h);
+                glLineWidth(1.0f);
             }
             continue;
         }
@@ -524,7 +550,7 @@ void translucentBox(float x, float y, float w, float h, float a) {
 
 /* Permanent readout in the canvas' top-left corner. */
 void drawInfoOverlay() {
-    char l[3][120];
+    char l[5][160];
     int nl = 0;
     sprintf(l[nl++], "Zoom %.0f%%   Cursor (%d, %d)", viewScale * 100.0f,
         (int)floorf(mouseWorldX + 0.5f), (int)floorf(mouseWorldY + 0.5f));
@@ -543,6 +569,32 @@ void drawInfoOverlay() {
         char bin[40];
         patternToBinary(curPattern, curPatternBits, bin);
         sprintf(l[nl++], "Pat 0x%X = %s  x%d", curPattern, bin, curPatternScale);
+    }
+#endif
+#if F_FILL && F_ANIM
+    if (fillAnimIndex >= 0) {                  /* live counters while a fill animates */
+        const FillRegion& F = fillRegions[fillAnimIndex];
+        size_t shown = std::min(pixelsShownAt(F, fillAnimPos), F.pixels.size());
+        bool byRow = false;
+#if F_SCAN
+        byRow = !F.rows.empty();
+        if (byRow) {
+            size_t r = std::min(F.rows.size() - 1, (size_t)std::max(0.0, fillAnimPos - 1.0));
+            const ScanRow& row = F.rows[r];
+            char xs[80] = "";
+            for (size_t k = 0; k < row.xs.size() && k < 6; k++) {
+                char one[16]; sprintf(one, k ? ", %.1f" : "%.1f", row.xs[k]); strcat(xs, one);
+            }
+            sprintf(l[nl++], "Scan-line y = %d  (row %d/%d)  crossings: %s",
+                row.y, (int)r + 1, (int)F.rows.size(), row.xs.empty() ? "none" : xs);
+        }
+#endif
+        if (!byRow) {
+            int a = (shown > 0 && shown <= F.aux.size()) ? F.aux[shown - 1] : 0;
+            sprintf(l[nl++], "%s: %d / %d px   %s size %d", fillAlgoName[F.algorithm], (int)shown,
+                (int)F.pixels.size(), F.algorithm == FILL_FLOOD ? "queue" : "stack", a);
+        }
+        sprintf(l[nl++], fillAnimPaused ? "PAUSED   Space = resume   Right arrow = step" : "Space = pause");
     }
 #endif
 
@@ -1085,8 +1137,8 @@ void handleWidget(int id) {
 #endif
         logMsg("All fills cleared"); break;
 #if F_ANIM
-    case W_FILL_SLOW: case W_FILL_MED: case W_FILL_FAST:
-        fillSpeed = id - W_FILL_SLOW;
+    case W_FILL_VSLOW: case W_FILL_SLOW: case W_FILL_MED: case W_FILL_FAST:
+        fillSpeed = id - W_FILL_VSLOW;
         { char m[48]; sprintf(m, "Fill animation speed: %s", fillSpeedName[fillSpeed]); logMsg(m); }
         break;
 #endif
@@ -1683,6 +1735,10 @@ void keyboard(unsigned char key, int, int) {
     }
 #endif
 
+#if F_FILL && F_ANIM
+    if (key == ' ' && fillAnimIndex >= 0) { toggleFillPause(); glutPostRedisplay(); return; }
+#endif
+
     switch (key) {
 #if F_BRES
     case '1': setLineAlgo(ALGO_BRESENHAM); break;
@@ -1806,6 +1862,9 @@ void keyboardUp(unsigned char key, int, int) {
 #endif
 
 void special(int key, int, int) {
+#if F_FILL && F_ANIM
+    if (key == GLUT_KEY_RIGHT && fillAnimIndex >= 0 && fillAnimPaused) { stepFill(); glutPostRedisplay(); return; }
+#endif
     switch (key) {
 #if F_ZOOM
     case GLUT_KEY_LEFT:  viewOffsetX += 20; break;

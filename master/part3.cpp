@@ -37,7 +37,7 @@ void rasterizeBoundaries(PixelSet& out) {
     plotPattern = savedPat; plotBits = savedBits; plotScale = savedScale;
 }
 
-struct Bounds { int minx, miny, maxx, maxy; };
+struct Bounds { int minx = 0, miny = 0, maxx = -1, maxy = -1; };
 Bounds boundsOf(const PixelSet& b, int margin) {
     Bounds r = { 0, 0, -1, -1 };
     bool first = true;
@@ -57,21 +57,25 @@ bool outside(const Bounds& bb, int x, int y) {
 const size_t LEAK_EXTRA_PIXELS = 2500;
 
 typedef bool (*EscapeTest)(int x, int y);
-#if F_SEEDFILL
+#if F_B4 || F_B8
 
-/* Classic recursive boundary / flood fill:
+/* Classic recursive boundary fill:
 
-       fill(x, y):
-           if (x,y) is boundary or already filled: return
+       boundaryFill(x, y):
+           if (x,y) is the boundary colour or already filled: return
            colour (x,y)
-           fill(x+1, y); fill(x-1, y); fill(x, y+1); fill(x, y-1)
-           [8-connected also: fill(x+1,y+1); fill(x-1,y+1); fill(x-1,y-1); fill(x+1,y-1)]
+           boundaryFill(x+1, y); boundaryFill(x-1, y)
+           boundaryFill(x, y+1); boundaryFill(x, y-1)
+#if F_B8
+           [8-connected also: (x+1,y+1) (x-1,y+1) (x-1,y-1) (x+1,y-1)]
+#endif
 
    Real recursion would overflow the call stack on large regions, so the
    call stack is kept explicitly: each frame remembers which neighbour it
    tries next. Pixels are appended to `order` exactly when the recursive
    version would colour them, so the animation shows the true depth-first
-   path (one direction first, then backtracking).
+   path (one direction first, then backtracking). `aux` gets the stack
+   depth at each pixel (shown live while animating).
 #if F_B8
 
    An 8-connected fill escapes through the diagonal steps of an 8-connected
@@ -80,13 +84,13 @@ typedef bool (*EscapeTest)(int x, int y);
    The first escaped pixel is recorded in `leakAt`; the fill then runs for
    LEAK_EXTRA_PIXELS more and stops, and never goes past `bb`. */
 void recursiveFill(int x, int y, const PixelSet& boundary, const Bounds& bb,
-    PixelList& order, int connectivity, EscapeTest escaped, long& leakAt) {
+    PixelList& order, std::vector<int>* aux, int connectivity, EscapeTest escaped, long& leakAt) {
     static const int dx8[8] = { 1,-1, 0, 0, 1,-1,-1, 1 };
     static const int dy8[8] = { 0, 0, 1,-1, 1, 1,-1,-1 };
     const int n = (connectivity == 8) ? 8 : 4;
 
     PixelSet filled;
-    struct Frame { int x, y, next; };
+    struct Frame { int x = 0, y = 0, next = 0; };
     std::vector<Frame> stack;
     leakAt = -1;
 
@@ -94,10 +98,11 @@ void recursiveFill(int x, int y, const PixelSet& boundary, const Bounds& bb,
         std::pair<int, int> q(px, py);
         if (boundary.count(q) || filled.count(q) || outside(bb, px, py)) return;
         filled.insert(q);
-        order.push_back(q);
-        if (leakAt < 0 && escaped(px, py)) leakAt = (long)order.size() - 1;
         Frame f = { px, py, 0 };
         stack.push_back(f);
+        order.push_back(q);
+        if (aux) aux->push_back((int)stack.size());
+        if (leakAt < 0 && escaped(px, py)) leakAt = (long)order.size() - 1;
     };
 
     tryVisit(x, y);
@@ -111,14 +116,153 @@ void recursiveFill(int x, int y, const PixelSet& boundary, const Bounds& bb,
     }
 }
 #endif
+#if F_FLOOD
+
+/* ---- Flood fill: replace the seed's colour, spreading as a wave ----
+   The colour of a pixel is the colour of the top-most fill covering it,
+   or the background (-1). Outline pixels never match. */
+typedef std::unordered_map<std::pair<int, int>, int, PairHash> ColourMap;
+
+int packRGB(int r, int g, int b) { return (r << 16) | (g << 8) | b; }
+
+ColourMap buildColourMap() {
+    ColourMap cm;
+    for (size_t i = 0; i < fillRegions.size(); i++) {      /* later fills paint over earlier ones */
+        const FillRegion& F = fillRegions[i];
+        if (F.deleted) continue;
+        int c = packRGB(F.r, F.g, F.b);
+        for (size_t k = 0; k < F.pixels.size(); k++) cm[F.pixels[k]] = c;
+    }
+    return cm;
+}
+int colourAt(const ColourMap& cm, int x, int y) {
+    ColourMap::const_iterator it = cm.find(std::make_pair(x, y));
+    return (it == cm.end()) ? -1 : it->second;
+}
+
+/*     floodFill(seed):
+           old = colour(seed)
+           queue <- seed
+           while queue not empty:
+               p = dequeue; colour p
+               for each 4-neighbour q with colour(q) == old: enqueue q
+
+   A queue (first in, first out) colours pixels in order of their distance
+   from the seed, so the colour spreads outward in rings like water.
+   `aux` gets the queue length at each pixel. */
+void floodFill(int x, int y, const PixelSet& boundary, const ColourMap& colours, int oldColour,
+    const Bounds& bb, PixelList& order, std::vector<int>* aux, EscapeTest escaped, long& leakAt) {
+    static const int dx4[4] = { 1,-1, 0, 0 };
+    static const int dy4[4] = { 0, 0, 1,-1 };
+    PixelSet queued;
+    std::vector<std::pair<int, int>> queue;
+    size_t head = 0;
+    leakAt = -1;
+
+    auto matches = [&](int px, int py) {
+        std::pair<int, int> q(px, py);
+        return !outside(bb, px, py) && !boundary.count(q) && !queued.count(q)
+            && colourAt(colours, px, py) == oldColour;
+    };
+    if (!matches(x, y)) return;
+    queue.push_back(std::make_pair(x, y)); queued.insert(queue.back());
+
+    while (head < queue.size()) {
+        if (leakAt >= 0 && order.size() >= (size_t)leakAt + LEAK_EXTRA_PIXELS) break;
+        std::pair<int, int> p = queue[head++];
+        order.push_back(p);
+        if (aux) aux->push_back((int)(queue.size() - head));
+        if (leakAt < 0 && escaped(p.first, p.second)) leakAt = (long)order.size() - 1;
+        for (int k = 0; k < 4; k++) {
+            int qx = p.first + dx4[k], qy = p.second + dy4[k];
+            if (matches(qx, qy)) { queue.push_back(std::make_pair(qx, qy)); queued.insert(queue.back()); }
+        }
+    }
+}
+#endif
 #if F_SCAN
 
-/* Scan-line (span) fill: fills whole horizontal runs, seeding the rows
-   above and below from a stack. Same leak detection / stop as above. */
-void scanlineFill(int x, int y, const PixelSet& boundary, const Bounds& bb,
-    PixelList& order, EscapeTest escaped, long& leakAt) {
+/* ---- Scan-line polygon fill (textbook) ----
+   For each scan line y, from the top of the shape to the bottom:
+     1. find the x where the line crosses the shape's edges,
+     2. sort the crossings,
+     3. fill between crossing pairs: (x1,x2), (x3,x4), ...
+   An edge counts for y in [ymin, ymax) only, so a vertex is not counted
+   twice. Circles and ellipses use their exact equations instead of edges. */
+std::vector<float> scanCrossings(const LineObj& L, float y) {
+    std::vector<float> xs;
+#if F_POLY
+    if (isPolyShape(L.shape)) {
+        size_t n = L.pts.size();
+        for (size_t i = 0; i < n; i++) {
+            const Pt& a = L.pts[i]; const Pt& b = L.pts[(i + 1) % n];
+            if (a.y == b.y) continue;                              /* horizontal edge */
+            float ylo = std::min(a.y, b.y), yhi = std::max(a.y, b.y);
+            if (y >= ylo && y < yhi) xs.push_back(a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y));
+        }
+    }
+#endif
+#if F_CIRCLE
+    if (L.shape == SHAPE_CIRCLE) {                                 /* (x-cx)^2 + (y-cy)^2 = r^2 */
+        float r2 = (L.x1 - L.x0) * (L.x1 - L.x0) + (L.y1 - L.y0) * (L.y1 - L.y0);
+        float dy = y - L.y0, d = r2 - dy * dy;
+        if (d >= 0) { float h = sqrtf(d); xs.push_back(L.x0 - h); xs.push_back(L.x0 + h); }
+    }
+#endif
+#if F_ELLIPSE
+    if (L.shape == SHAPE_ELLIPSE) {
+        /* rotated ellipse: solve A*x^2 + B*x + C = 0 for x (relative to the centre) */
+        float rx = std::max(1.0f, fabsf(L.x1 - L.x0)), ry = std::max(1.0f, fabsf(L.y1 - L.y0));
+        float c = cosf(L.angle), s = sinf(L.angle), v = y - L.y0;
+        float A = c * c / (rx * rx) + s * s / (ry * ry);
+        float B = 2.0f * v * c * s * (1.0f / (rx * rx) - 1.0f / (ry * ry));
+        float C = v * v * (s * s / (rx * rx) + c * c / (ry * ry)) - 1.0f;
+        float disc = B * B - 4 * A * C;
+        if (disc >= 0) {
+            float q = sqrtf(disc);
+            xs.push_back(L.x0 + (-B - q) / (2 * A));
+            xs.push_back(L.x0 + (-B + q) / (2 * A));
+        }
+    }
+#endif
+    std::sort(xs.begin(), xs.end());
+    return xs;
+}
+
+void scanlinePolygonFill(const LineObj& L, PixelList& order, std::vector<ScanRow>& rows) {
+    float ymin = L.y0, ymax = L.y1;                                /* polygons: bounding box */
+#if F_CIRCLE
+    if (L.shape == SHAPE_CIRCLE) {
+        float r = sqrtf((L.x1 - L.x0) * (L.x1 - L.x0) + (L.y1 - L.y0) * (L.y1 - L.y0));
+        ymin = L.y0 - r; ymax = L.y0 + r;
+    }
+#endif
+#if F_ELLIPSE
+    if (L.shape == SHAPE_ELLIPSE) {
+        float rx = fabsf(L.x1 - L.x0), ry = fabsf(L.y1 - L.y0);
+        float c = cosf(L.angle), s = sinf(L.angle);
+        float hy = sqrtf(rx * rx * s * s + ry * ry * c * c);
+        ymin = L.y0 - hy; ymax = L.y0 + hy;
+    }
+#endif
+    for (int y = (int)floorf(ymax); y >= (int)ceilf(ymin); y--) {   /* top to bottom */
+        ScanRow row;
+        row.y = y;
+        row.start = order.size();
+        row.xs = scanCrossings(L, (float)y);
+        for (size_t i = 0; i + 1 < row.xs.size(); i += 2)
+            for (int x = (int)ceilf(row.xs[i]); x <= (int)floorf(row.xs[i + 1]); x++)
+                order.push_back(std::make_pair(x, y));
+        row.end = order.size();
+        rows.push_back(row);
+    }
+}
+
+/* Region closed only by separate lines (no single shape around the seed):
+   seed-based span fill - fill the whole run left/right of a pixel, then
+   look for new runs in the rows above and below. */
+void spanFill(int x, int y, const PixelSet& boundary, const Bounds& bb, PixelList& order) {
     PixelSet filled;
-    leakAt = -1;
     auto isFree = [&](int px, int py) {
         std::pair<int, int> q(px, py);
         return !outside(bb, px, py) && !boundary.count(q) && !filled.count(q);
@@ -127,21 +271,17 @@ void scanlineFill(int x, int y, const PixelSet& boundary, const Bounds& bb,
 
     std::vector<std::pair<int, int>> stack;
     stack.push_back(std::make_pair(x, y));
-    while (!stack.empty()) {
-        if (leakAt >= 0 && order.size() >= (size_t)leakAt + LEAK_EXTRA_PIXELS) break;
+    while (!stack.empty() && order.size() < 2000000) {
         std::pair<int, int> p = stack.back(); stack.pop_back();
         int px = p.first, py = p.second;
         if (!isFree(px, py)) continue;
-
         int xl = px;
         while (isFree(xl - 1, py)) xl--;
         int xr = px;
         while (isFree(xr + 1, py)) xr++;
-
         for (int xx = xl; xx <= xr; xx++) {
             filled.insert(std::make_pair(xx, py));
             order.push_back(std::make_pair(xx, py));
-            if (leakAt < 0 && escaped(xx, py)) leakAt = (long)order.size() - 1;
         }
         for (int ny = py - 1; ny <= py + 1; ny += 2) {
             bool inRun = false;
@@ -152,6 +292,27 @@ void scanlineFill(int x, int y, const PixelSet& boundary, const Bounds& bb,
                 else inRun = false;
             }
         }
+    }
+}
+
+/* Re-orders span-fill pixels top to bottom and builds one ScanRow per row
+   (crossings = the ends of each run), so it animates like a scan-line. */
+void groupIntoRows(PixelList& order, std::vector<ScanRow>& rows) {
+    std::sort(order.begin(), order.end(), [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
+        return a.second != b.second ? a.second > b.second : a.first < b.first; });
+    for (size_t i = 0; i < order.size();) {
+        ScanRow row; row.y = order[i].second; row.start = i;
+        size_t j = i;
+        while (j < order.size() && order[j].second == row.y) {
+            size_t k = j;
+            while (k + 1 < order.size() && order[k + 1].second == row.y && order[k + 1].first == order[k].first + 1) k++;
+            row.xs.push_back((float)order[j].first);
+            row.xs.push_back((float)order[k].first);
+            j = k + 1;
+        }
+        row.end = j;
+        rows.push_back(row);
+        i = j;
     }
 }
 #endif
@@ -185,26 +346,75 @@ void  raiseLeakAlert(const FillRegion& F) {
 }
 #if F_ANIM
 
-/* ---- Fill animation: reveal pixels in visit order ---- */
+/* ---- Fill animation ----
+   Progress is counted in pixels, or in scan lines for scan-line fill. */
 int    fillAnimGen = 0;   /* stale timers (from an earlier fill) are ignored */
 
-void fillAnimTick(int gen) {
-    if (gen != fillAnimGen) return;
-    if (fillAnimIndex < 0 || fillAnimIndex >= (int)fillRegions.size()) { fillAnimIndex = -1; return; }
+size_t fillUnits(const FillRegion& F) {
+#if F_SCAN
+    if (!F.rows.empty()) return F.rows.size();
+#endif
+    return F.pixels.size();
+}
+/* how many pixels are visible at progress `pos` */
+size_t pixelsShownAt(const FillRegion& F, double pos) {
+    size_t u = std::min((size_t)pos, fillUnits(F));
+#if F_SCAN
+    if (!F.rows.empty()) return (u == 0) ? 0 : F.rows[u - 1].end;
+#endif
+    return u;
+}
+
+void advanceFill(double units) {
     const FillRegion& F = fillRegions[fillAnimIndex];
-    size_t before = fillAnimCount;
-    fillAnimCount += fillAnimStep;
-    if (F.leakAt >= 0 && before <= (size_t)F.leakAt && fillAnimCount > (size_t)F.leakAt) raiseLeakAlert(F);
-    if (fillAnimCount >= F.pixels.size()) fillAnimIndex = -1;
+    size_t before = pixelsShownAt(F, fillAnimPos);
+    fillAnimPos += units;
+    size_t after = pixelsShownAt(F, fillAnimPos);
+    if (F.leakAt >= 0 && before <= (size_t)F.leakAt && after > (size_t)F.leakAt) raiseLeakAlert(F);
+    if (fillAnimPos >= (double)fillUnits(F)) { fillAnimIndex = -1; fillAnimPaused = false; }
+}
+
+void fillAnimTick(int gen) {
+    if (gen != fillAnimGen || fillAnimPaused) return;
+    if (fillAnimIndex < 0 || fillAnimIndex >= (int)fillRegions.size()) { fillAnimIndex = -1; return; }
+    advanceFill(fillAnimRate);
     glutPostRedisplay();
     if (fillAnimIndex >= 0) glutTimerFunc(ANIM_TICK_MS, fillAnimTick, gen);
 }
+
 void startFillAnimation(int idx) {
+    /* speed: pixels (or scan lines) per tick, but never longer than maxSec */
+    static const double pxRate[4]  = { 1, 8, 40, 250 };
+    static const double rowRate[4] = { 1.0 / 6, 0.5, 1, 4 };
+    static const double maxSec[4]  = { 1e9, 30, 8, 2 };
+    const FillRegion& F = fillRegions[idx];
+    bool byRow = false;
+#if F_SCAN
+    byRow = !F.rows.empty();
+#endif
+    double units = (double)fillUnits(F);
+    double rate = byRow ? rowRate[fillSpeed] : pxRate[fillSpeed];
+    fillAnimRate = std::max(rate, units / (maxSec[fillSpeed] * 1000.0 / ANIM_TICK_MS));
     fillAnimIndex = idx;
-    fillAnimCount = 0;
-    size_t total = std::max((size_t)1, fillRegions[idx].pixels.size());
-    fillAnimStep = std::max((size_t)1, total / (size_t)fillSpeedFrames[fillSpeed]);
+    fillAnimPos = 0;
+    fillAnimPaused = false;
     glutTimerFunc(ANIM_TICK_MS, fillAnimTick, ++fillAnimGen);
+}
+
+void toggleFillPause() {
+    if (fillAnimIndex < 0) return;
+    fillAnimPaused = !fillAnimPaused;
+    logMsg(fillAnimPaused ? "Fill paused - Space resumes, Right arrow steps" : "Fill resumed");
+    if (!fillAnimPaused) glutTimerFunc(ANIM_TICK_MS, fillAnimTick, ++fillAnimGen);
+}
+
+void stepFill() {                 /* while paused: one scan line, or a few pixels */
+    if (fillAnimIndex < 0 || !fillAnimPaused) return;
+    bool byRow = false;
+#if F_SCAN
+    byRow = !fillRegions[fillAnimIndex].rows.empty();
+#endif
+    advanceFill(byRow ? 1.0 : std::max(1.0, std::min(fillAnimRate, 10.0)));
 }
 #endif
 
@@ -229,25 +439,45 @@ void performFill(float wx, float wy) {
     }
     leakBox = boundsOf(boundary, 0);
 
-    PixelList order;
+    FillRegion fr;
+    PixelList& order = fr.pixels;
+    std::vector<int>* aux = NULL;
+#if F_ANIM
+    aux = &fr.aux;
+#endif
     long leakAt = -1;
 #if F_B4
-    if (fillAlgorithm == FILL_BOUNDARY_4) recursiveFill(seedX, seedY, boundary, bb, order, 4, escapedPixel, leakAt);
+    if (fillAlgorithm == FILL_BOUNDARY_4) recursiveFill(seedX, seedY, boundary, bb, order, aux, 4, escapedPixel, leakAt);
 #endif
 #if F_B8
-    if (fillAlgorithm == FILL_BOUNDARY_8) recursiveFill(seedX, seedY, boundary, bb, order, 8, escapedPixel, leakAt);
+    if (fillAlgorithm == FILL_BOUNDARY_8) recursiveFill(seedX, seedY, boundary, bb, order, aux, 8, escapedPixel, leakAt);
 #endif
 #if F_FLOOD
-    if (fillAlgorithm == FILL_FLOOD)      recursiveFill(seedX, seedY, boundary, bb, order, 4, escapedPixel, leakAt);
+    if (fillAlgorithm == FILL_FLOOD) {
+        ColourMap colours = buildColourMap();
+        int oldColour = colourAt(colours, seedX, seedY);
+        if (oldColour == packRGB(fillR, fillG, fillB)) { logMsg("That area already has the fill colour"); return; }
+        floodFill(seedX, seedY, boundary, colours, oldColour, bb, order, aux, escapedPixel, leakAt);
+    }
 #endif
 #if F_SCAN
-    if (fillAlgorithm == FILL_SCANLINE)   scanlineFill(seedX, seedY, boundary, bb, order, escapedPixel, leakAt);
+    if (fillAlgorithm == FILL_SCANLINE) {
+        if (leakShape >= 0) {
+            scanlinePolygonFill(lines[leakShape], order, fr.rows);   /* textbook: edge crossings */
+        }
+        else {
+            spanFill(seedX, seedY, boundary, bb, order);             /* region made of separate lines */
+            groupIntoRows(order, fr.rows);
+            for (size_t k = 0; k < order.size(); k++)
+                if (escapedPixel(order[k].first, order[k].second)) { leakAt = (long)k; break; }
+        }
+    }
 #endif
+    (void)aux;
     leakAlertOn = false;
 
     if (order.empty()) { logMsg("Fill produced no pixels"); return; }
 
-    FillRegion fr;
     fr.seedX = seedX; fr.seedY = seedY;
     fr.r = fillR; fr.g = fillG; fr.b = fillB;
     fr.algorithm = fillAlgorithm;
@@ -257,7 +487,6 @@ void performFill(float wx, float wy) {
     fr.seq = nextSeq++;
 #endif
     fr.leakAt = leakAt;
-    fr.pixels.swap(order);
     fillRegions.push_back(fr);
 #if F_UNDO
     redoStack.clear();
@@ -273,6 +502,9 @@ void performFill(float wx, float wy) {
     sprintf(m, "%s from seed (%d,%d): %d px", fillAlgoName[fillAlgorithm], seedX, seedY,
         (int)fillRegions.back().pixels.size());
     logMsg(m);
+#if F_ANIM
+    if (animateShapes) logMsg("  Space = pause / resume,  Right arrow = step");
+#endif
     if (leakAt >= 0) {
 #if F_ANIM
         if (!animateShapes) raiseLeakAlert(fillRegions.back());

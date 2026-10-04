@@ -54,7 +54,7 @@ enum WidgetId {
     W_FILL_TOGGLE, W_FILL_B4, W_FILL_B8, W_FILL_FLOOD, W_FILL_SCAN,
     W_FILL_COLOUR, W_FILL_CLEAR,
 #if F_ANIM
-    W_FILL_SLOW, W_FILL_MED, W_FILL_FAST,
+    W_FILL_VSLOW, W_FILL_SLOW, W_FILL_MED, W_FILL_FAST,
 #endif
 #endif
 #if F_TRANSFORM
@@ -81,9 +81,9 @@ void addWidget(float x, float y, float w, float h, const char* label, int id, bo
     wd.label = label; wd.id = id; wd.active = active;
     widgets.push_back(wd);
 }
-struct Section { float y; std::string name; };
+struct Section { float y = 0; std::string name; };
 std::vector<Section> sections;
-struct PanelText { float x, y; std::string s; float r, g, b; };
+struct PanelText { float x = 0, y = 0; std::string s; float r = 0, g = 0, b = 0; };
 std::vector<PanelText> panelTexts;
 void addPanelText(float x, float y, const std::string& s, float r, float g, float b) {
     PanelText t; t.x = x; t.y = y; t.s = s; t.r = r; t.g = g; t.b = b;
@@ -463,12 +463,13 @@ void buildPanelAt(float scroll) {
         y -= 12; addPanelText(px, y, "Fill animation speed (needs Anim ON):", 0.60f, 0.65f, 0.72f);
         y -= 4;
         {
-            const char* l[3] = { "Slow", "Medium", "Fast" };
-            int id[3] = { W_FILL_SLOW, W_FILL_MED, W_FILL_FAST };
-            bool ac[3] = { fillSpeed == 0, fillSpeed == 1, fillSpeed == 2 };
-            y = addButtonRows(px, y, pw, bh, gap, 3, 3, l, id, ac);
+            const char* l[4] = { "V.Slow", "Slow", "Medium", "Fast" };
+            int id[4] = { W_FILL_VSLOW, W_FILL_SLOW, W_FILL_MED, W_FILL_FAST };
+            bool ac[4] = { fillSpeed == 0, fillSpeed == 1, fillSpeed == 2, fillSpeed == 3 };
+            y = addButtonRows(px, y, pw, bh, gap, 4, 4, l, id, ac);
         }
-        y -= gap;
+        y -= 12; addPanelText(px, y, "while filling: Space pause, Right arrow step", 0.60f, 0.65f, 0.72f);
+        y -= 2 + gap;
 #endif
     }
     y -= sgap;
