@@ -1325,6 +1325,25 @@ void commitDragShape(float wx, float wy) {
 #endif
 
 /* right click without dragging: close a dropdown, finish / cancel a shape */
+#if F_LINE || F_POLY
+/* Endpoint magnet: a drawing click within 8 screen pixels of an existing
+   end point / corner lands exactly on it, so shapes really join up. */
+void magnetToVertex(float& wx, float& wy) {
+    float best = 8.0f, bx = wx, by = wy;
+    auto test = [&](float x, float y) {
+        float d = hypotf(sx(x) - sx(wx), sy(y) - sy(wy));
+        if (d < best) { best = d; bx = x; by = y; }
+    };
+    for (size_t i = 0; i < lines.size(); i++) {
+        const LineObj& L = lines[i];
+        if (L.deleted) continue;
+        if (L.shape == SHAPE_LINE) { test(L.x0, L.y0); test(L.x1, L.y1); }
+        for (size_t k = 0; k < L.pts.size(); k++) test(L.pts[k].x, L.pts[k].y);
+    }
+    wx = bx; wy = by;
+}
+#endif
+
 void rightClick() {
 #if F_DROPDOWN
     if (openDropdown) { openDropdown = 0; return; }
@@ -1416,7 +1435,11 @@ void mouse(int button, int state, int mxi, int myi) {
         if (scrollDragging) { scrollDragging = false; }
 #if F_DRAG
         else if (dragging) {
-            commitDragShape(snapX(screenToWorldX(mx)), snapY(screenToWorldY(my)));
+            float ex = snapX(screenToWorldX(mx)), ey = snapY(screenToWorldY(my));
+#if F_LINE || F_POLY
+            magnetToVertex(ex, ey);
+#endif
+            commitDragShape(ex, ey);
         }
 #endif
 #if F_SELECT
@@ -1470,6 +1493,9 @@ void mouse(int button, int state, int mxi, int myi) {
 
     float rwx = screenToWorldX(mx), rwy = screenToWorldY(my);
     float wx = snapX(rwx), wy = snapY(rwy);
+#if F_LINE || F_POLY
+    if (inputMode == MODE_MOUSE) magnetToVertex(wx, wy);
+#endif
 #if F_SELECT
 
     if (inputMode == MODE_SELECT) {

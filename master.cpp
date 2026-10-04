@@ -1960,7 +1960,7 @@ void floodFill(int x, int y, const PixelSet& boundary, const ColourMap& colours,
    twice. Circles and ellipses use their exact equations instead of edges. */
 std::vector<float> scanCrossings(const LineObj& L, float y) {
     std::vector<float> xs;
-#if F_POLY
+#if F_POLY || F_LINE
     if (isPolyShape(L.shape)) {
         size_t n = L.pts.size();
         for (size_t i = 0; i < n; i++) {
@@ -1997,6 +1997,66 @@ std::vector<float> scanCrossings(const LineObj& L, float y) {
     std::sort(xs.begin(), xs.end());
     return xs;
 }
+
+#if F_LINE
+/* Separate lines whose ends meet (within a few pixels) form a closed loop.
+   The loop around the seed is returned as one polygon, so scan-line fill
+   can use edge crossings even when the shape was drawn line by line. */
+bool findLineLoop(int seedX, int seedY, LineObj& out) {
+    std::vector<int> segs;
+    for (size_t i = 0; i < lines.size(); i++)
+        if (!lines[i].deleted && lines[i].shape == SHAPE_LINE) segs.push_back((int)i);
+    const float tol = 8.0f / viewScale;          /* "meeting" distance, 8 screen pixels */
+    auto meets = [&](float ax, float ay, float bx, float by) {
+        return fabsf(ax - bx) <= tol && fabsf(ay - by) <= tol;
+    };
+    bool found = false;
+    float bestArea = 1e30f;
+    for (size_t s = 0; s < segs.size(); s++) {
+        const LineObj& L0 = lines[segs[s]];
+        std::vector<Pt> v;
+        Pt a; a.x = L0.x0; a.y = L0.y0; v.push_back(a);
+        Pt b; b.x = L0.x1; b.y = L0.y1; v.push_back(b);
+        std::vector<bool> used(segs.size(), false);
+        used[s] = true;
+        bool closed = false;
+        for (size_t step = 0; step < segs.size() && !closed; step++) {
+            Pt end = v.back();
+            int next = -1; Pt other;
+            for (size_t k = 0; k < segs.size(); k++) {
+                if (used[k]) continue;
+                const LineObj& L = lines[segs[k]];
+                if (meets(L.x0, L.y0, end.x, end.y)) { next = (int)k; other.x = L.x1; other.y = L.y1; break; }
+                if (meets(L.x1, L.y1, end.x, end.y)) { next = (int)k; other.x = L.x0; other.y = L.y0; break; }
+            }
+            if (next < 0) break;                 /* chain is open */
+            used[next] = true;
+            if (v.size() >= 3 && meets(other.x, other.y, v[0].x, v[0].y)) closed = true;
+            else v.push_back(other);
+        }
+        if (!closed || v.size() < 3) continue;
+        /* is the seed inside this loop? (ray casting) and how big is it? */
+        bool in = false; float a2 = 0;
+        for (size_t i = 0, j = v.size() - 1; i < v.size(); j = i++) {
+            if (((v[i].y > seedY) != (v[j].y > seedY)) &&
+                (seedX < (v[j].x - v[i].x) * (seedY - v[i].y) / (v[j].y - v[i].y) + v[i].x)) in = !in;
+            a2 += v[j].x * v[i].y - v[i].x * v[j].y;
+        }
+        float area = fabsf(a2) / 2.0f;
+        if (!in || area >= bestArea) continue;
+        bestArea = area; found = true;
+        out = LineObj();
+        out.shape = SHAPE_FREEPOLY;
+        out.pts = v;
+        out.x0 = out.x1 = v[0].x; out.y0 = out.y1 = v[0].y;   /* bounding box */
+        for (size_t i = 1; i < v.size(); i++) {
+            out.x0 = std::min(out.x0, v[i].x); out.x1 = std::max(out.x1, v[i].x);
+            out.y0 = std::min(out.y0, v[i].y); out.y1 = std::max(out.y1, v[i].y);
+        }
+    }
+    return found;
+}
+#endif
 
 void scanlinePolygonFill(const LineObj& L, PixelList& order, std::vector<ScanRow>& rows) {
     float ymin = L.y0, ymax = L.y1;                                /* polygons: bounding box */
@@ -2235,10 +2295,20 @@ void performFill(float wx, float wy) {
             scanlinePolygonFill(lines[leakShape], order, fr.rows);   /* textbook: edge crossings */
         }
         else {
-            spanFill(seedX, seedY, boundary, bb, order);             /* region made of separate lines */
-            groupIntoRows(order, fr.rows);
-            for (size_t k = 0; k < order.size(); k++)
-                if (escapedPixel(order[k].first, order[k].second)) { leakAt = (long)k; break; }
+#if F_LINE
+            LineObj loop;
+            if (findLineLoop(seedX, seedY, loop)) {
+                scanlinePolygonFill(loop, order, fr.rows);           /* lines joined into a polygon */
+                logMsg("  separate lines joined into one closed polygon");
+            }
+            else
+#endif
+            {
+                spanFill(seedX, seedY, boundary, bb, order);         /* region made of separate lines */
+                groupIntoRows(order, fr.rows);
+                for (size_t k = 0; k < order.size(); k++)
+                    if (escapedPixel(order[k].first, order[k].second)) { leakAt = (long)k; break; }
+            }
         }
     }
 #endif
@@ -4638,6 +4708,25 @@ void commitDragShape(float wx, float wy) {
 #endif
 
 /* right click without dragging: close a dropdown, finish / cancel a shape */
+#if F_LINE || F_POLY
+/* Endpoint magnet: a drawing click within 8 screen pixels of an existing
+   end point / corner lands exactly on it, so shapes really join up. */
+void magnetToVertex(float& wx, float& wy) {
+    float best = 8.0f, bx = wx, by = wy;
+    auto test = [&](float x, float y) {
+        float d = hypotf(sx(x) - sx(wx), sy(y) - sy(wy));
+        if (d < best) { best = d; bx = x; by = y; }
+    };
+    for (size_t i = 0; i < lines.size(); i++) {
+        const LineObj& L = lines[i];
+        if (L.deleted) continue;
+        if (L.shape == SHAPE_LINE) { test(L.x0, L.y0); test(L.x1, L.y1); }
+        for (size_t k = 0; k < L.pts.size(); k++) test(L.pts[k].x, L.pts[k].y);
+    }
+    wx = bx; wy = by;
+}
+#endif
+
 void rightClick() {
 #if F_DROPDOWN
     if (openDropdown) { openDropdown = 0; return; }
@@ -4729,7 +4818,11 @@ void mouse(int button, int state, int mxi, int myi) {
         if (scrollDragging) { scrollDragging = false; }
 #if F_DRAG
         else if (dragging) {
-            commitDragShape(snapX(screenToWorldX(mx)), snapY(screenToWorldY(my)));
+            float ex = snapX(screenToWorldX(mx)), ey = snapY(screenToWorldY(my));
+#if F_LINE || F_POLY
+            magnetToVertex(ex, ey);
+#endif
+            commitDragShape(ex, ey);
         }
 #endif
 #if F_SELECT
@@ -4783,6 +4876,9 @@ void mouse(int button, int state, int mxi, int myi) {
 
     float rwx = screenToWorldX(mx), rwy = screenToWorldY(my);
     float wx = snapX(rwx), wy = snapY(rwy);
+#if F_LINE || F_POLY
+    if (inputMode == MODE_MOUSE) magnetToVertex(wx, wy);
+#endif
 #if F_SELECT
 
     if (inputMode == MODE_SELECT) {
