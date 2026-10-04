@@ -107,7 +107,112 @@
         return !!Function('"use strict"; return (' + js + ");")();
     }
 
-    function strip(src, flags) {
+
+    /* ---- UI styles for the generated app ----
+       Each style sets the sidebar side/width, fonts, and every UI colour.
+       "classic" is the original GraphicsLab look and stays the default. */
+    const C = (r, g, b) => [r, g, b];
+    const CLASSIC = {
+        name: "Classic (yours)", desc: "Your original look: dark sidebar on the right, white canvas.",
+        left: false, width: 260, dark: false,
+        font: "GLUT_BITMAP_HELVETICA_12", fontSmall: "GLUT_BITMAP_HELVETICA_10", fontTitle: "GLUT_BITMAP_HELVETICA_12",
+        PANEL_BG: C(0.14, 0.15, 0.18), HEADER_BG: C(0.11, 0.12, 0.15), TITLE: C(0.55, 0.75, 1.0),
+        SECTION: C(0.42, 0.58, 0.80), HINT: C(0.60, 0.65, 0.72), MUTED: C(0.45, 0.50, 0.58), LINE: C(0.30, 0.33, 0.40),
+        BTN: C(0.26, 0.28, 0.32), BTN_ACTIVE: C(0.20, 0.50, 0.90), BTN_BORDER: C(0.40, 0.43, 0.48),
+        BTN_TEXT: C(0.92, 0.93, 0.95), BTN_ACTIVE_TEXT: C(0.92, 0.93, 0.95), ARROW: C(0.85, 0.87, 0.90),
+        SCROLL_TRACK: C(0.20, 0.21, 0.25), SCROLL_THUMB: C(0.38, 0.42, 0.50), SCROLL_DRAG: C(0.45, 0.65, 0.95),
+        DROP_BG: C(0.10, 0.11, 0.13), DROP_BORDER: C(0.35, 0.55, 0.85), HIGHLIGHT: C(0.95, 0.85, 0.45),
+        BOX: C(0.10, 0.11, 0.14), BOX_TEXT: C(0.75, 0.78, 0.82), LOG: C(0.45, 0.85, 0.55),
+        CANVAS: C(1.0, 1.0, 1.0), CANVAS_DARK: C(0.12, 0.13, 0.15),
+        GRID: C(0.90, 0.91, 0.93), GRID_DARK: C(0.22, 0.23, 0.25),
+        PIXGRID: C(0.95, 0.95, 0.97), PIXGRID_DARK: C(0.17, 0.18, 0.20),
+        AXES: C(0.20, 0.20, 0.22), AXES_DARK: C(0.65, 0.65, 0.68),
+        AXLABEL: C(0.45, 0.45, 0.48), AXLABEL_DARK: C(0.55, 0.55, 0.58),
+    };
+    const STYLES = {
+        classic: CLASSIC,
+        midnight: Object.assign({}, CLASSIC, {
+            name: "Midnight Neon", desc: "Sidebar on the left, deep navy with purple and cyan, dark canvas.",
+            left: true, width: 270, dark: true,
+            PANEL_BG: C(0.06, 0.07, 0.12), HEADER_BG: C(0.04, 0.05, 0.09), TITLE: C(0.30, 0.90, 1.0),
+            SECTION: C(0.75, 0.50, 1.0), HINT: C(0.55, 0.60, 0.80), MUTED: C(0.45, 0.50, 0.70), LINE: C(0.22, 0.25, 0.40),
+            BTN: C(0.12, 0.14, 0.22), BTN_ACTIVE: C(0.55, 0.25, 0.95), BTN_BORDER: C(0.28, 0.30, 0.48),
+            BTN_TEXT: C(0.88, 0.90, 1.0), BTN_ACTIVE_TEXT: C(1.0, 1.0, 1.0), ARROW: C(0.30, 0.90, 1.0),
+            SCROLL_TRACK: C(0.10, 0.11, 0.18), SCROLL_THUMB: C(0.30, 0.32, 0.50), SCROLL_DRAG: C(0.30, 0.90, 1.0),
+            DROP_BG: C(0.05, 0.06, 0.10), DROP_BORDER: C(0.55, 0.25, 0.95), HIGHLIGHT: C(0.30, 0.90, 1.0),
+            BOX: C(0.05, 0.06, 0.10), BOX_TEXT: C(0.80, 0.84, 1.0), LOG: C(0.40, 0.95, 0.85),
+            CANVAS_DARK: C(0.05, 0.06, 0.10), GRID_DARK: C(0.12, 0.14, 0.22), PIXGRID_DARK: C(0.08, 0.09, 0.15),
+            AXES_DARK: C(0.55, 0.60, 0.85), AXLABEL_DARK: C(0.50, 0.55, 0.78),
+        }),
+        light: Object.assign({}, CLASSIC, {
+            name: "Clean Light", desc: "Light grey sidebar with dark text and blue buttons, white canvas.",
+            PANEL_BG: C(0.95, 0.96, 0.97), HEADER_BG: C(0.88, 0.90, 0.93), TITLE: C(0.10, 0.30, 0.70),
+            SECTION: C(0.20, 0.40, 0.75), HINT: C(0.40, 0.44, 0.50), MUTED: C(0.45, 0.48, 0.53), LINE: C(0.78, 0.80, 0.85),
+            BTN: C(1.0, 1.0, 1.0), BTN_ACTIVE: C(0.15, 0.45, 0.95), BTN_BORDER: C(0.75, 0.78, 0.83),
+            BTN_TEXT: C(0.15, 0.17, 0.20), BTN_ACTIVE_TEXT: C(1.0, 1.0, 1.0), ARROW: C(0.30, 0.32, 0.36),
+            SCROLL_TRACK: C(0.86, 0.88, 0.91), SCROLL_THUMB: C(0.65, 0.68, 0.73), SCROLL_DRAG: C(0.15, 0.45, 0.95),
+            DROP_BG: C(1.0, 1.0, 1.0), DROP_BORDER: C(0.15, 0.45, 0.95), HIGHLIGHT: C(0.75, 0.45, 0.0),
+            BOX: C(0.97, 0.97, 0.98), BOX_TEXT: C(0.20, 0.22, 0.26), LOG: C(0.05, 0.50, 0.20),
+        }),
+        retro: Object.assign({}, CLASSIC, {
+            name: "Retro Terminal", desc: "Black and green like an old terminal, fixed-width font, sidebar on the left.",
+            left: true, width: 300, dark: true,
+            font: "GLUT_BITMAP_8_BY_13", fontSmall: "GLUT_BITMAP_8_BY_13", fontTitle: "GLUT_BITMAP_9_BY_15",
+            PANEL_BG: C(0.0, 0.0, 0.0), HEADER_BG: C(0.0, 0.08, 0.0), TITLE: C(0.2, 1.0, 0.3),
+            SECTION: C(0.1, 0.8, 0.25), HINT: C(0.1, 0.65, 0.25), MUTED: C(0.1, 0.6, 0.2), LINE: C(0.1, 0.5, 0.15),
+            BTN: C(0.0, 0.10, 0.02), BTN_ACTIVE: C(0.1, 0.75, 0.25), BTN_BORDER: C(0.1, 0.6, 0.2),
+            BTN_TEXT: C(0.3, 1.0, 0.4), BTN_ACTIVE_TEXT: C(0.0, 0.0, 0.0), ARROW: C(0.3, 1.0, 0.4),
+            SCROLL_TRACK: C(0.0, 0.08, 0.02), SCROLL_THUMB: C(0.1, 0.5, 0.15), SCROLL_DRAG: C(0.3, 1.0, 0.4),
+            DROP_BG: C(0.0, 0.06, 0.0), DROP_BORDER: C(0.2, 1.0, 0.3), HIGHLIGHT: C(1.0, 0.9, 0.2),
+            BOX: C(0.0, 0.05, 0.0), BOX_TEXT: C(0.3, 1.0, 0.4), LOG: C(0.3, 1.0, 0.4),
+            CANVAS_DARK: C(0.0, 0.0, 0.0), GRID_DARK: C(0.0, 0.18, 0.05), PIXGRID_DARK: C(0.0, 0.10, 0.03),
+            AXES_DARK: C(0.2, 0.9, 0.3), AXLABEL_DARK: C(0.1, 0.7, 0.2),
+        }),
+        ocean: Object.assign({}, CLASSIC, {
+            name: "Ocean Breeze", desc: "Wide teal sidebar on the right with orange buttons, soft blue canvas.",
+            width: 300,
+            PANEL_BG: C(0.05, 0.20, 0.25), HEADER_BG: C(0.03, 0.15, 0.19), TITLE: C(1.0, 0.75, 0.40),
+            SECTION: C(0.45, 0.85, 0.85), HINT: C(0.60, 0.80, 0.82), MUTED: C(0.45, 0.65, 0.68), LINE: C(0.15, 0.38, 0.43),
+            BTN: C(0.08, 0.28, 0.33), BTN_ACTIVE: C(0.95, 0.50, 0.20), BTN_BORDER: C(0.20, 0.45, 0.50),
+            BTN_TEXT: C(0.92, 0.98, 0.98), BTN_ACTIVE_TEXT: C(1.0, 1.0, 1.0), ARROW: C(1.0, 0.75, 0.40),
+            SCROLL_TRACK: C(0.04, 0.16, 0.20), SCROLL_THUMB: C(0.20, 0.45, 0.50), SCROLL_DRAG: C(0.95, 0.50, 0.20),
+            DROP_BG: C(0.03, 0.15, 0.19), DROP_BORDER: C(0.95, 0.50, 0.20), HIGHLIGHT: C(1.0, 0.75, 0.40),
+            BOX: C(0.03, 0.15, 0.19), BOX_TEXT: C(0.85, 0.95, 0.95), LOG: C(1.0, 0.80, 0.45),
+            CANVAS: C(0.97, 0.99, 1.0), GRID: C(0.85, 0.92, 0.95), PIXGRID: C(0.92, 0.96, 0.98),
+            AXES: C(0.10, 0.30, 0.38), AXLABEL: C(0.25, 0.45, 0.52),
+        }),
+    };
+    const COLOUR_KEYS = ["PANEL_BG", "HEADER_BG", "TITLE", "SECTION", "HINT", "MUTED", "LINE",
+        "BTN", "BTN_ACTIVE", "BTN_BORDER", "BTN_TEXT", "BTN_ACTIVE_TEXT", "ARROW",
+        "SCROLL_TRACK", "SCROLL_THUMB", "SCROLL_DRAG", "DROP_BG", "DROP_BORDER", "HIGHLIGHT",
+        "BOX", "BOX_TEXT", "LOG", "CANVAS", "CANVAS_DARK", "GRID", "GRID_DARK",
+        "PIXGRID", "PIXGRID_DARK", "AXES", "AXES_DARK", "AXLABEL", "AXLABEL_DARK"];
+
+    function f3(v) {
+        return v.map(x => { const s = (Math.round(x * 100) / 100).toFixed(2); return s + "f"; }).join(", ");
+    }
+    /* C++ block that replaces the //@@UI_STYLE@@ line */
+    function styleBlock(key) {
+        const t = STYLES[key] || CLASSIC;
+        const out = [];
+        out.push("/* ===========================================================================");
+        out.push("   UI STYLE: " + t.name);
+        out.push("   Colours, fonts and layout of the window. Change these to restyle it.");
+        out.push("   =========================================================================== */");
+        out.push("const bool  PANEL_ON_LEFT = " + (t.left ? "true" : "false") + ";      /* sidebar on the left (true) or right (false) */");
+        out.push("const float PANEL_W = " + t.width.toFixed(1) + "f;          /* sidebar width in pixels */");
+        out.push("const bool  START_DARK = " + (t.dark ? "true" : "false") + ";         /* canvas starts in dark mode */");
+        out.push("void* const UI_FONT = " + t.font + ";         /* button labels */");
+        out.push("void* const UI_FONT_SMALL = " + t.fontSmall + ";   /* section titles, hints, status */");
+        out.push("void* const UI_TITLE_FONT = " + t.fontTitle + ";   /* sidebar title */");
+        COLOUR_KEYS.forEach(k => {
+            const name = ("UI_" + k + "[3]").padEnd(20);
+            out.push("const float " + name + " = { " + f3(t[k]) + " };");
+        });
+        return out.join("\n");
+    }
+
+    function strip(src, flags, styleKey) {
         const lines = src.split(/\r?\n/);
         const out = [];
         const stack = [];            /* {parent, taken, active} */
@@ -150,10 +255,12 @@
             if (l.trim() === "" && tidy.length && tidy[tidy.length - 1].trim() === "") return;
             tidy.push(l);
         });
-        return tidy.join("\n").replace(/\n+$/, "") + "\n";
+        let text = tidy.join("\n").replace(/\n+$/, "") + "\n";
+        text = text.replace("//@@UI_STYLE@@", styleBlock(styleKey || "classic"));
+        return text;
     }
 
-    const api = { FEATURES, resolve, strip };
+    const api = { FEATURES, resolve, strip, STYLES, styleBlock };
     if (typeof module !== "undefined" && module.exports) module.exports = api;
     else root.AppStrip = api;
 })(typeof window !== "undefined" ? window : this);

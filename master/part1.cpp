@@ -118,14 +118,18 @@
 #include <map>
 #endif
 
+//@@UI_STYLE@@
+
 /* ===========================================================================
    1.  WINDOW GEOMETRY AND VIEW TRANSFORM
    =========================================================================== */
 int   winW = 1280, winH = 800;
-const float PANEL_W = 260.0f;
 
 float canvasW() { return winW - PANEL_W; }
-float originX() { return canvasW() / 2.0f; }
+float canvasLeft() { return PANEL_ON_LEFT ? PANEL_W : 0.0f; }       /* canvas x range */
+float panelLeft() { return PANEL_ON_LEFT ? 0.0f : winW - PANEL_W; }  /* sidebar x range */
+bool  inPanel(float mx) { return mx >= panelLeft() && mx < panelLeft() + PANEL_W; }
+float originX() { return canvasLeft() + canvasW() / 2.0f; }
 float originY() { return winH / 2.0f; }
 
 /* Camera: world -> screen = origin + offset + world * scale */
@@ -586,7 +590,7 @@ int inputMode = MODE_MOUSE;
 
 bool showGrid = true;
 bool showLabels = true;
-bool darkMode = false;
+bool darkMode = START_DARK;
 
 int   clickState = 0;
 float pendingX = 0, pendingY = 0;

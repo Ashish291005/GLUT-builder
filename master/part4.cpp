@@ -89,6 +89,9 @@ void addPanelText(float x, float y, const std::string& s, float r, float g, floa
     PanelText t; t.x = x; t.y = y; t.s = s; t.r = r; t.g = g; t.b = b;
     panelTexts.push_back(t);
 }
+void addPanelText(float x, float y, const std::string& s, const float* c) {
+    addPanelText(x, y, s, c[0], c[1], c[2]);
+}
 
 /* Scrollable region of the panel, below the fixed header. */
 float panelViewTop() { return (float)winH - PANEL_HEADER_H; }
@@ -112,7 +115,7 @@ float addButtonRows(float px, float y, float pw, float bh, float gap, int count,
 void buildPanelAt(float scroll) {
     widgets.clear(); sections.clear(); panelTexts.clear();
 
-    const float px = winW - PANEL_W + 12;
+    const float px = panelLeft() + 12;
     const float pw = PANEL_W - 26;
     const float bh = 22;
     const float gap = 4;
@@ -166,8 +169,8 @@ void buildPanelAt(float scroll) {
     y -= gap;
 #if F_SELECT
     if (inputMode == MODE_SELECT) {
-        y -= 12; addPanelText(px, y, "Shift+click add  |  drag empty = box", 0.60f, 0.65f, 0.72f);
-        y -= 12; addPanelText(px, y, "drag a selected shape to move it", 0.60f, 0.65f, 0.72f);
+        y -= 12; addPanelText(px, y, "Shift+click add  |  drag empty = box", UI_HINT);
+        y -= 12; addPanelText(px, y, "drag a selected shape to move it", UI_HINT);
         y -= 2;
     }
 #endif
@@ -230,7 +233,7 @@ void buildPanelAt(float scroll) {
 #if F_STAR
         if (currentShape == SHAPE_STAR) sprintf(sl, "Points: %d", starPoints);
 #endif
-        addPanelText(px + pw / 2 - textWidth(sl) / 2.0f, y + 8, sl, 0.92f, 0.93f, 0.95f);
+        addPanelText(px + pw / 2 - textWidth(sl) / 2.0f, y + 8, sl, UI_BTN_TEXT);
         y -= gap;
     }
 #endif
@@ -278,7 +281,7 @@ void buildPanelAt(float scroll) {
         case SHAPE_FREEPOLY:  hint = "click points; Enter/right-click/1st pt"; break;
 #endif
         }
-        y -= 12; addPanelText(px, y, hint, 0.60f, 0.65f, 0.72f);
+        y -= 12; addPanelText(px, y, hint, UI_HINT);
         y -= 2;
     }
     y -= sgap;
@@ -340,8 +343,8 @@ void buildPanelAt(float scroll) {
         bool ac[4] = { false, false, false, false };
         y = addButtonRows(px, y, pw, bh, gap, 4, 4, l, id, ac);
     }
-    y -= 12; addPanelText(px, y, "wheel = zoom at cursor", 0.60f, 0.65f, 0.72f);
-    y -= 12; addPanelText(px, y, "right/middle drag or Space+drag = pan", 0.60f, 0.65f, 0.72f);
+    y -= 12; addPanelText(px, y, "wheel = zoom at cursor", UI_HINT);
+    y -= 12; addPanelText(px, y, "right/middle drag or Space+drag = pan", UI_HINT);
     y -= 2 + sgap;
 #endif
 #if F_TRANSFORM
@@ -464,7 +467,7 @@ void buildPanelAt(float scroll) {
         }
         y -= gap;
 #if F_ANIM
-        y -= 12; addPanelText(px, y, "Fill animation speed (needs Anim ON):", 0.60f, 0.65f, 0.72f);
+        y -= 12; addPanelText(px, y, "Fill animation speed (needs Anim ON):", UI_HINT);
         y -= 4;
         {
             const char* l[4] = { "V.Slow", "Slow", "Medium", "Fast" };
@@ -472,7 +475,7 @@ void buildPanelAt(float scroll) {
             bool ac[4] = { fillSpeed == 0, fillSpeed == 1, fillSpeed == 2, fillSpeed == 3 };
             y = addButtonRows(px, y, pw, bh, gap, 4, 4, l, id, ac);
         }
-        y -= 12; addPanelText(px, y, "while filling: Space pause, Right arrow step", 0.60f, 0.65f, 0.72f);
+        y -= 12; addPanelText(px, y, "while filling: Space pause, Right arrow step", UI_HINT);
         y -= 2 + gap;
 #endif
     }
@@ -563,7 +566,7 @@ void scrollPanel(float dy) {
 /* Scrollbar geometry (track + thumb) in the panel's right margin. */
 bool scrollbarGeom(float& tx, float& ty, float& tw, float& th, float& thumbY, float& thumbH) {
     if (panelMaxScroll <= 0) return false;
-    tx = winW - 9.0f; tw = 6.0f;
+    tx = panelLeft() + PANEL_W - 9.0f; tw = 6.0f;
     ty = panelViewBottom() + 2; th = panelViewH() - 4;
     thumbH = std::max(24.0f, th * panelViewH() / std::max(1.0f, panelContentH));
     float t = panelScroll / panelMaxScroll;        /* 0 = top */
@@ -572,36 +575,37 @@ bool scrollbarGeom(float& tx, float& ty, float& tw, float& th, float& thumbY, fl
 }
 
 void drawPanel() {
-    float px = winW - PANEL_W;
+    float px = panelLeft();
 
-    glColor3f(0.14f, 0.15f, 0.18f);
+    glColor3fv(UI_PANEL_BG);
     rect(px, 0, PANEL_W, (float)winH);
 
     /* scrollable body */
     glEnable(GL_SCISSOR_TEST);
     glScissor((int)px, (int)panelViewBottom(), (int)PANEL_W, (int)panelViewH());
 
-    glColor3f(0.42f, 0.58f, 0.80f);
+    glColor3fv(UI_SECTION);
     for (size_t i = 0; i < sections.size(); i++)
-        text(px + 12, sections[i].y - 11, sections[i].name.c_str(), GLUT_BITMAP_HELVETICA_10);
+        text(px + 12, sections[i].y - 11, sections[i].name.c_str(), UI_FONT_SMALL);
 
     for (size_t i = 0; i < panelTexts.size(); i++) {
         const PanelText& t = panelTexts[i];
         glColor3f(t.r, t.g, t.b);
-        text(t.x, t.y, t.s.c_str(), GLUT_BITMAP_HELVETICA_10);
+        text(t.x, t.y, t.s.c_str(), UI_FONT_SMALL);
     }
 
     for (size_t i = 0; i < widgets.size(); i++) {
         const Widget& wd = widgets[i];
         if (wd.y + wd.h < panelViewBottom() || wd.y > panelViewTop()) continue;
-        if (wd.active) glColor3f(0.20f, 0.50f, 0.90f);
-        else           glColor3f(0.26f, 0.28f, 0.32f);
+        if (wd.active) glColor3fv(UI_BTN_ACTIVE);
+        else           glColor3fv(UI_BTN);
         rect(wd.x, wd.y, wd.w, wd.h);
-        glColor3f(0.40f, 0.43f, 0.48f);
+        glColor3fv(UI_BTN_BORDER);
         rectOutline(wd.x, wd.y, wd.w, wd.h);
 
-        glColor3f(0.92f, 0.93f, 0.95f);
-        textCentred(wd.x + wd.w / 2, wd.y + 8, wd.label.c_str());
+        if (wd.active) glColor3fv(UI_BTN_ACTIVE_TEXT);
+        else           glColor3fv(UI_BTN_TEXT);
+        textCentred(wd.x + wd.w / 2, wd.y + 8, wd.label.c_str(), UI_FONT);
 #if F_COLOUR
 
         if (wd.id == W_DD_COLOUR) {          /* colour swatch */
@@ -621,13 +625,13 @@ void drawPanel() {
 #endif
 #if F_COLOUR
         if (wd.id == W_DD_COLOUR) {
-            glColor3f(0.85f, 0.87f, 0.90f);
+            glColor3fv(UI_ARROW);
             text(wd.x + wd.w - 16, wd.y + 8, "v", GLUT_BITMAP_HELVETICA_10);
         }
 #endif
 #if F_STYLE
         if (wd.id == W_DD_STYLE) {
-            glColor3f(0.85f, 0.87f, 0.90f);
+            glColor3fv(UI_ARROW);
             text(wd.x + wd.w - 16, wd.y + 8, "v", GLUT_BITMAP_HELVETICA_10);
         }
 #endif
@@ -637,24 +641,24 @@ void drawPanel() {
     /* scrollbar */
     float tx, ty, tw, th, thumbY, thumbH;
     if (scrollbarGeom(tx, ty, tw, th, thumbY, thumbH)) {
-        glColor3f(0.20f, 0.21f, 0.25f);
+        glColor3fv(UI_SCROLL_TRACK);
         rect(tx, ty, tw, th);
-        if (scrollDragging) glColor3f(0.45f, 0.65f, 0.95f);
-        else                glColor3f(0.38f, 0.42f, 0.50f);
+        if (scrollDragging) glColor3fv(UI_SCROLL_DRAG);
+        else                glColor3fv(UI_SCROLL_THUMB);
         rect(tx, thumbY, tw, thumbH);
     }
 
     /* fixed header */
-    glColor3f(0.11f, 0.12f, 0.15f);
+    glColor3fv(UI_HEADER_BG);
     rect(px, panelViewTop(), PANEL_W, PANEL_HEADER_H);
-    glColor3f(0.55f, 0.75f, 1.0f);
-    text(px + 12, (float)(winH - 21), "SHAPE DRAWING TOOL", GLUT_BITMAP_HELVETICA_12);
+    glColor3fv(UI_TITLE);
+    text(px + 12, (float)(winH - 21), "SHAPE DRAWING TOOL", UI_TITLE_FONT);
     if (panelMaxScroll > 0) {
-        glColor3f(0.45f, 0.50f, 0.58f);
+        glColor3fv(UI_MUTED);
         const char* sh = (panelScroll < panelMaxScroll) ? "scroll for more" : "";
-        text(px + PANEL_W - 14 - textWidth(sh, GLUT_BITMAP_HELVETICA_10), (float)(winH - 21), sh, GLUT_BITMAP_HELVETICA_10);
+        text(px + PANEL_W - 14 - textWidth(sh, UI_FONT_SMALL), (float)(winH - 21), sh, UI_FONT_SMALL);
     }
-    glColor3f(0.30f, 0.33f, 0.40f);
+    glColor3fv(UI_LINE);
     glBegin(GL_LINES);
     glVertex2f(px, panelViewTop()); glVertex2f(px + PANEL_W, panelViewTop());
     glEnd();
@@ -676,9 +680,9 @@ void drawPanel() {
         float ly = by - listH;
         if (ly < 4) ly = by + 22;   /* not enough room below: open upwards */
 
-        glColor3f(0.10f, 0.11f, 0.13f);
+        glColor3fv(UI_DROP_BG);
         rect(bx, ly, bw, listH);
-        glColor3f(0.35f, 0.55f, 0.85f);
+        glColor3fv(UI_DROP_BORDER);
         rectOutline(bx, ly, bw, listH);
 
         for (int i = 0; i < n; i++) {
@@ -689,12 +693,12 @@ void drawPanel() {
                 if (!isCustom) {
                     col255(colourOpts[i].r, colourOpts[i].g, colourOpts[i].b);
                     rect(bx + 6, iy + 5, 11, 11);
-                    glColor3f(0.92f, 0.93f, 0.95f);
-                    text(bx + 24, iy + 6, colourOpts[i].name, GLUT_BITMAP_HELVETICA_10);
+                    glColor3fv(UI_BTN_TEXT);
+                    text(bx + 24, iy + 6, colourOpts[i].name, UI_FONT_SMALL);
                 }
                 else {
-                    glColor3f(0.95f, 0.85f, 0.45f);
-                    text(bx + 24, iy + 6, "Custom r,g,b ...", GLUT_BITMAP_HELVETICA_10);
+                    glColor3fv(UI_HIGHLIGHT);
+                    text(bx + 24, iy + 6, "Custom r,g,b ...", UI_FONT_SMALL);
                 }
             }
 #endif
@@ -704,12 +708,12 @@ void drawPanel() {
                     char lab[64], b2[40];
                     patternToBinary(styleOpts[i].value, styleOpts[i].bits, b2);
                     sprintf(lab, "%-11s %s", styleOpts[i].name, b2);
-                    glColor3f(0.92f, 0.93f, 0.95f);
-                    text(bx + 8, iy + 6, lab, GLUT_BITMAP_HELVETICA_10);
+                    glColor3fv(UI_BTN_TEXT);
+                    text(bx + 8, iy + 6, lab, UI_FONT_SMALL);
                 }
                 else {
-                    glColor3f(0.95f, 0.85f, 0.45f);
-                    text(bx + 8, iy + 6, "Custom hex ...", GLUT_BITMAP_HELVETICA_10);
+                    glColor3fv(UI_HIGHLIGHT);
+                    text(bx + 8, iy + 6, "Custom hex ...", UI_FONT_SMALL);
                 }
             }
 #endif

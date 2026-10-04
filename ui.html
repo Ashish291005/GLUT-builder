@@ -74,6 +74,17 @@ details summary { cursor: pointer; color: var(--accent); }
 details ol { margin: 8px 0 0 18px; padding: 0; }
 kbd { background: var(--chip); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
 .tabs { display: flex; gap: 6px; }
+.styles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.stylecard { display: flex; flex-direction: column; gap: 6px; padding: 8px; text-align: left; border-radius: 8px; }
+.stylecard[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.stylecard .mini { display: flex; height: 58px; border-radius: 5px; overflow: hidden; border: 1px solid var(--line); }
+.stylecard .mini .side { width: 34%; padding: 5px 4px; display: flex; flex-direction: column; gap: 3px; }
+.stylecard .mini .side i { display: block; height: 7px; border-radius: 2px; }
+.stylecard .mini .canvas { flex: 1; position: relative; }
+.stylecard .mini .canvas::before, .stylecard .mini .canvas::after { content: ""; position: absolute; background: var(--axis); }
+.stylecard .mini .canvas::before { left: 50%; top: 0; bottom: 0; width: 1px; }
+.stylecard .mini .canvas::after { top: 50%; left: 0; right: 0; height: 1px; }
+.stylecard b { font-size: 12.5px; }
 .codewarn { background: #5c1414; color: #ffd9d4; border: 1px solid #c0392b; border-radius: 8px; padding: 10px 14px; margin: 16px 16px 0; font-weight: 600; }
 li.warn { color: var(--danger); font-weight: 600; }
 .tabs.theme { margin-left: auto; }
@@ -110,6 +121,11 @@ li.warn { color: var(--danger); font-weight: 600; }
         <h2>Quick picks</h2>
         <div class="row" id="appPresets"></div>
         <p class="hint">Tick the features you need. Everything you untick is removed from the code completely: its sidebar buttons, keys, functions and variables.</p>
+    </section>
+    <section class="card">
+        <h2>Look of the app</h2>
+        <div class="styles" id="styleCards"></div>
+        <p class="hint" id="styleDesc"></p>
     </section>
     <div id="featureGroups"></div>
     <section class="card" id="appNotesCard" style="display:none">
@@ -515,6 +531,31 @@ li.warn { color: var(--danger); font-weight: 600; }
     ];
     if (!state.appSel) state.appSel = allOn();
     if (!state.mode) state.mode = "app";
+    if (!state.appStyle || !S.STYLES[state.appStyle]) state.appStyle = "classic";
+
+    /* ---- UI style picker (classic = your original look, the default) ---- */
+    const css = (c) => "rgb(" + c.map(v => Math.round(v * 255)).join(",") + ")";
+    function renderStyles() {
+        const box = $("styleCards");
+        box.innerHTML = "";
+        Object.keys(S.STYLES).forEach(key => {
+            const t = S.STYLES[key];
+            const side = el("div", { class: "side", style: "background:" + css(t.PANEL_BG) }, [
+                el("i", { style: "background:" + css(t.TITLE) + ";width:70%" }),
+                el("i", { style: "background:" + css(t.BTN_ACTIVE) }),
+                el("i", { style: "background:" + css(t.BTN) + ";border:1px solid " + css(t.BTN_BORDER) }),
+                el("i", { style: "background:" + css(t.BTN) + ";border:1px solid " + css(t.BTN_BORDER) }),
+            ]);
+            const canvas = el("div", { class: "canvas", style: "background:" + css(t.dark ? t.CANVAS_DARK : t.CANVAS) +
+                ";--axis:" + css(t.dark ? t.AXES_DARK : t.AXES) });
+            const mini = el("div", { class: "mini" }, t.left ? [side, canvas] : [canvas, side]);
+            const card = el("button", { class: "stylecard", "aria-pressed": String(state.appStyle === key),
+                onclick: () => { state.appStyle = key; renderStyles(); update(); } }, [mini, el("b", { text: t.name })]);
+            box.appendChild(card);
+        });
+        $("styleDesc").textContent = S.STYLES[state.appStyle].desc +
+            (state.appStyle === "classic" ? "" : "  (Colours and layout only - features are the same.)");
+    }
 
     const checkboxes = {};
     function renderFeatures() {
@@ -585,7 +626,7 @@ li.warn { color: var(--danger); font-weight: 600; }
         readSettings();
         if (state.mode === "app") {
             const r = S.resolve(state.appSel);
-            try { lastCode = S.strip(window.APP_MASTER, r.flags); }
+            try { lastCode = S.strip(window.APP_MASTER, r.flags, state.appStyle); }
             catch (e) { lastCode = "// generator error: " + e.message + "\n"; }
             $("appNotesCard").style.display = r.notes.length ? "" : "none";
             $("appNotes").innerHTML = "";
@@ -639,6 +680,8 @@ li.warn { color: var(--danger); font-weight: 600; }
             try {
                 state = JSON.parse(t);
                 if (!state.appSel) state.appSel = allOn();
+                if (!state.appStyle || !S.STYLES[state.appStyle]) state.appStyle = "classic";
+                renderStyles();
                 if (!state.items) state.items = [];
                 writeSettings(); renderItems(); syncChecks(); setMode(state.mode || "app");
             }
@@ -649,6 +692,7 @@ li.warn { color: var(--danger); font-weight: 600; }
     writeSettings();
     renderItems();
     renderFeatures();
+    renderStyles();
     setMode(state.mode);
 })();
 </script>

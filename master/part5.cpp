@@ -11,55 +11,51 @@ float niceStep(float minWorld) {
 }
 
 void drawGrid() {
-    float cw = canvasW();
+    float cw = canvasW(), cl = canvasLeft();
     float step = niceStep(40.0f / viewScale);
     float lstep = niceStep(90.0f / viewScale);
 
-    float wxMin = screenToWorldX(0);
-    float wxMax = screenToWorldX(cw);
+    float wxMin = screenToWorldX(cl);
+    float wxMax = screenToWorldX(cl + cw);
     float wyMin = screenToWorldY(0);
     float wyMax = screenToWorldY((float)winH);
 
     /* pixel grid when zoomed far enough in to see individual raster pixels */
     if (viewScale >= 8.0f) {
-        if (darkMode) glColor3f(0.17f, 0.18f, 0.20f);
-        else          glColor3f(0.95f, 0.95f, 0.97f);
+        glColor3fv(darkMode ? UI_PIXGRID_DARK : UI_PIXGRID);
         glBegin(GL_LINES);
         for (float x = floorf(wxMin) - 0.5f; x <= wxMax; x += 1.0f) {
             glVertex2f(sx(x), 0); glVertex2f(sx(x), (float)winH);
         }
         for (float y = floorf(wyMin) - 0.5f; y <= wyMax; y += 1.0f) {
-            glVertex2f(0, sy(y)); glVertex2f(cw, sy(y));
+            glVertex2f(cl, sy(y)); glVertex2f(cl + cw, sy(y));
         }
         glEnd();
     }
 
-    if (darkMode) glColor3f(0.22f, 0.23f, 0.25f);
-    else          glColor3f(0.90f, 0.91f, 0.93f);
+    glColor3fv(darkMode ? UI_GRID_DARK : UI_GRID);
     glBegin(GL_LINES);
     for (float x = floorf(wxMin / step) * step; x <= wxMax; x += step) {
         glVertex2f(sx(x), 0); glVertex2f(sx(x), (float)winH);
     }
     for (float y = floorf(wyMin / step) * step; y <= wyMax; y += step) {
-        glVertex2f(0, sy(y)); glVertex2f(cw, sy(y));
+        glVertex2f(cl, sy(y)); glVertex2f(cl + cw, sy(y));
     }
     glEnd();
 
-    if (darkMode) glColor3f(0.65f, 0.65f, 0.68f);
-    else          glColor3f(0.20f, 0.20f, 0.22f);
+    glColor3fv(darkMode ? UI_AXES_DARK : UI_AXES);
     glLineWidth(1.6f);
     glBegin(GL_LINES);
-    glVertex2f(0, sy(0)); glVertex2f(cw, sy(0));
+    glVertex2f(cl, sy(0)); glVertex2f(cl + cw, sy(0));
     glVertex2f(sx(0), 0); glVertex2f(sx(0), (float)winH);
     glEnd();
     glLineWidth(1.0f);
 
     /* axis labels: stick to the canvas edge when the axis is off-screen */
     float labY = std::min(std::max(sy(0) + 6, 6.0f), (float)winH - 14);
-    float labX = std::min(std::max(sx(0) + 6, 4.0f), cw - 40);
+    float labX = std::min(std::max(sx(0) + 6, cl + 4.0f), cl + cw - 40);
     char b[24];
-    if (darkMode) glColor3f(0.55f, 0.55f, 0.58f);
-    else          glColor3f(0.45f, 0.45f, 0.48f);
+    glColor3fv(darkMode ? UI_AXLABEL_DARK : UI_AXLABEL);
     for (float x = floorf(wxMin / lstep) * lstep; x <= wxMax; x += lstep) {
         if (fabsf(x) < 0.001f) continue;
         sprintf(b, "%g", x);
@@ -115,15 +111,15 @@ void drawOctantOverlay() {
     glColor3f(0.50f, 0.30f, 0.80f);
     const char* hint = "Circle mode: 8-octant symmetry active";
     float hw = (float)textWidth(hint, GLUT_BITMAP_HELVETICA_10);
-    text((cw - hw) / 2.0f, (float)(winH - 10), hint, GLUT_BITMAP_HELVETICA_10);
+    text(canvasLeft() + (cw - hw) / 2.0f, (float)(winH - 10), hint, GLUT_BITMAP_HELVETICA_10);
 }
 #endif
 
 void labelPoint(float wx, float wy, float dy, const char* s) {
-    float cw = canvasW();
+    float right = canvasLeft() + canvasW(), left = canvasLeft();
     float w = (float)textWidth(s, GLUT_BITMAP_HELVETICA_10);
-    float lx = (sx(wx) + 8 + w > cw - 4) ? sx(wx) - w - 8 : sx(wx) + 8;
-    if (lx < 4) lx = 4;
+    float lx = (sx(wx) + 8 + w > right - 4) ? sx(wx) - w - 8 : sx(wx) + 8;
+    if (lx < left + 4) lx = left + 4;
     float ly = sy(wy) + dy;
     if (ly > (float)(winH - 14)) ly = (float)(winH - 14);
     if (ly < 6) ly = 6;
@@ -171,13 +167,13 @@ void drawFills() {
                 float ly = sy((float)row.y);
                 glColor3f(0.10f, 0.75f, 0.95f);
                 glLineWidth(2.0f);
-                glBegin(GL_LINES); glVertex2f(0, ly); glVertex2f(canvasW(), ly); glEnd();
+                glBegin(GL_LINES); glVertex2f(canvasLeft(), ly); glVertex2f(canvasLeft() + canvasW(), ly); glEnd();
                 glLineWidth(1.0f);
                 glColor3f(0.90f, 0.10f, 0.10f);
                 for (size_t k = 0; k < row.xs.size(); k++) drawMarker(row.xs[k], (float)row.y, 9.0f);
                 char b[40]; sprintf(b, "y = %d", row.y);
                 glColor3f(0.10f, 0.55f, 0.80f);
-                text(6, ly + 5, b, GLUT_BITMAP_HELVETICA_12);
+                text(canvasLeft() + 6, ly + 5, b, GLUT_BITMAP_HELVETICA_12);
                 continue;
             }
 #endif
@@ -399,7 +395,7 @@ void drawLines() {
         const char* hint = (currentShape == SHAPE_FREEPOLY)
             ? "Click to add vertices - click first vertex, Enter or right-click to close - Backspace undo point - Esc cancel"
             : "Click the next vertex - Backspace undo point - Esc cancel";
-        text((canvasW() - textWidth(hint, GLUT_BITMAP_HELVETICA_10)) / 2.0f, 12.0f, hint, GLUT_BITMAP_HELVETICA_10);
+        text(canvasLeft() + (canvasW() - textWidth(hint, GLUT_BITMAP_HELVETICA_10)) / 2.0f, 12.0f, hint, GLUT_BITMAP_HELVETICA_10);
     }
     else
 #endif
@@ -533,7 +529,7 @@ void drawLines() {
         const char* hint = "Move mouse for ry, wheel to fine-tune, click to confirm";
 #endif
         float hw = (float)textWidth(hint, GLUT_BITMAP_HELVETICA_10);
-        text((canvasW() - hw) / 2.0f, 12.0f, hint, GLUT_BITMAP_HELVETICA_10);
+        text(canvasLeft() + (canvasW() - hw) / 2.0f, 12.0f, hint, GLUT_BITMAP_HELVETICA_10);
     }
 #endif
 }
@@ -543,7 +539,7 @@ void drawLines() {
    =========================================================================== */
 void translucentBox(float x, float y, float w, float h, float a) {
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glColor4f(0.10f, 0.11f, 0.14f, a);
+    glColor4f(UI_BOX[0], UI_BOX[1], UI_BOX[2], a);
     rect(x, y, w, h);
     glDisable(GL_BLEND);
 }
@@ -599,25 +595,25 @@ void drawInfoOverlay() {
 #endif
 
     int w = 0;
-    for (int i = 0; i < nl; i++) w = std::max(w, textWidth(l[i], GLUT_BITMAP_HELVETICA_10));
-    for (size_t i = 0; i < logLines.size(); i++) w = std::max(w, textWidth(logLines[i].c_str(), GLUT_BITMAP_HELVETICA_10));
+    for (int i = 0; i < nl; i++) w = std::max(w, textWidth(l[i], UI_FONT_SMALL));
+    for (size_t i = 0; i < logLines.size(); i++) w = std::max(w, textWidth(logLines[i].c_str(), UI_FONT_SMALL));
     float bw = (float)std::min(w + 20, (int)canvasW() - 20);
     float bh = nl * 13 + 18 + (float)logLines.size() * 12 + 10;
-    float bx = 10, by = (float)winH - 10 - bh;
+    float bx = canvasLeft() + 10, by = (float)winH - 10 - bh;
 
     translucentBox(bx, by, bw, bh, 0.85f);
-    glColor3f(0.30f, 0.33f, 0.40f);
+    glColor3fv(UI_LINE);
     rectOutline(bx, by, bw, bh);
 
     float y = by + bh - 15;
-    glColor3f(0.75f, 0.78f, 0.82f);
-    for (int i = 0; i < nl; i++) { text(bx + 10, y, l[i], GLUT_BITMAP_HELVETICA_10); y -= 13; }
+    glColor3fv(UI_BOX_TEXT);
+    for (int i = 0; i < nl; i++) { text(bx + 10, y, l[i], UI_FONT_SMALL); y -= 13; }
     y -= 3;
-    glColor3f(0.42f, 0.58f, 0.80f);
-    text(bx + 10, y, "STATUS", GLUT_BITMAP_HELVETICA_10);
+    glColor3fv(UI_SECTION);
+    text(bx + 10, y, "STATUS", UI_FONT_SMALL);
     y -= 13;
-    glColor3f(0.45f, 0.85f, 0.55f);
-    for (size_t i = 0; i < logLines.size(); i++) { text(bx + 10, y, logLines[i].c_str(), GLUT_BITMAP_HELVETICA_10); y -= 12; }
+    glColor3fv(UI_LOG);
+    for (size_t i = 0; i < logLines.size(); i++) { text(bx + 10, y, logLines[i].c_str(), UI_FONT_SMALL); y -= 12; }
 }
 #if F_INPUTBOX
 
@@ -629,7 +625,7 @@ void inputBoxGeom(float& bx, float& by, float& bw, float& bh) {
 #else
     bh = 96.0f;
 #endif
-    bx = 10; by = 10;
+    bx = canvasLeft() + 10; by = 10;
 }
 #if F_PIVOT
 /* Pivot-taking transforms get an extra row with Set Pivot / Origin buttons. */
@@ -699,7 +695,7 @@ void drawInputBox() {
 
 void drawConfirmBox() {
     float bw = std::min(480.0f, canvasW() - 20), bh2 = 90;
-    float bx = 10, by = 10;
+    float bx = canvasLeft() + 10, by = 10;
 
     glColor3f(0.10f, 0.11f, 0.14f);
     rect(bx, by, bw, bh2);
@@ -755,7 +751,7 @@ void drawLeakBanner() {
         sprintf(l2, "The region is not closed.");
 #endif
     float w = (float)std::max(textWidth(l1, GLUT_BITMAP_HELVETICA_18), textWidth(l2)) + 40;
-    float h = 58, x = (canvasW() - w) / 2.0f, y = (float)winH - h - 12;
+    float h = 58, x = canvasLeft() + (canvasW() - w) / 2.0f, y = (float)winH - h - 12;
     glColor3f(0.60f, 0.05f, 0.05f);
     rect(x, y, w, h);
     glColor3f(1.0f, 0.45f, 0.40f);
@@ -786,12 +782,12 @@ void drawPivotMarker() {
 #endif
 
 void display() {
-    if (darkMode) glClearColor(0.12f, 0.13f, 0.15f, 1.0f);
-    else          glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+    const float* bg = darkMode ? UI_CANVAS_DARK : UI_CANVAS;
+    glClearColor(bg[0], bg[1], bg[2], 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     glEnable(GL_SCISSOR_TEST);
-    glScissor(0, 0, (int)canvasW(), winH);
+    glScissor((int)canvasLeft(), 0, (int)canvasW(), winH);
     if (showGrid) drawGrid();
 #if F_CIRCLE
     if (currentShape == SHAPE_CIRCLE) drawOctantOverlay();
@@ -1365,7 +1361,7 @@ void mouse(int button, int state, int mxi, int myi) {
         return;
     }
 #endif
-    bool overPanel = mx >= canvasW();
+    bool overPanel = inPanel(mx);
 
     /* mouse wheel: scrolls the panel when over it */
     if (button == 3 || button == 4) {
@@ -1649,7 +1645,7 @@ void motion(int mxi, int myi) {
         return;
     }
     if (boxSelecting) {
-        boxX1 = std::min(mx, canvasW()); boxY1 = my;
+        boxX1 = std::min(std::max(mx, canvasLeft()), canvasLeft() + canvasW()); boxY1 = my;
         glutPostRedisplay();
         return;
     }
@@ -1682,7 +1678,7 @@ void passiveMotion(int mxi, int myi) {
     }
 #endif
     /* redraw for previews and the cursor readout */
-    if (mx < canvasW() || clickState > 0) glutPostRedisplay();
+    if (!inPanel(mx) || clickState > 0) glutPostRedisplay();
 }
 
 void keyboard(unsigned char key, int, int) {
