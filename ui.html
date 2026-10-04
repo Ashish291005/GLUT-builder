@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<script>
+/* apply the saved theme before the page paints (default: dark) */
+(function () {
+    var t = "dark";
+    try { t = localStorage.getItem("glutTheme") || "dark"; } catch (e) { }
+    if (t === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", t);
+})();
+</script>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GLUT Code Builder</title>
+<style>
+:root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #1d2128; --muted: #5d6573; --line: #d9dde3;
+    --accent: #1c64d8; --accent-ink: #ffffff; --danger: #c62828; --code-bg: #0f1419; --code-ink: #d8dee9;
+    --chip: #eef2f8;
+}
+/* Auto follows Windows; Dark / Light are forced by the header switch. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #14171c; --panel: #1c2027; --ink: #e6e9ee; --muted: #9aa3b1; --line: #2e343e;
+        --accent: #5b9bff; --accent-ink: #0b0e12; --danger: #ff6b6b; --code-bg: #0b0e12; --code-ink: #d8dee9;
+        --chip: #252b35;
+    }
+}
+:root[data-theme="dark"] {
+        --bg: #14171c; --panel: #1c2027; --ink: #e6e9ee; --muted: #9aa3b1; --line: #2e343e;
+        --accent: #5b9bff; --accent-ink: #0b0e12; --danger: #ff6b6b; --code-bg: #0b0e12; --code-ink: #d8dee9;
+        --chip: #252b35;
+    color-scheme: dark;
+}
+:root[data-theme="light"] { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+header { padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+header h1 { font-size: 18px; margin: 0; }
+header p { margin: 0; color: var(--muted); }
+main { display: grid; grid-template-columns: minmax(360px, 520px) 1fr; gap: 16px; padding: 16px; align-items: start; }
+main > div { min-width: 0; }   /* long code lines must scroll inside <pre>, not widen the page */
+@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px 12px; } .codewrap { position: static; } }
+section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+section.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px 10px; }
+label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+input, select, textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; min-width: 0; }
+input[type=color] { padding: 1px 2px; height: 31px; }
+textarea { resize: vertical; min-height: 54px; }
+button { font: inherit; border: 1px solid var(--line); background: var(--chip); color: var(--ink); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.icon { padding: 2px 8px; }
+button.danger:hover { border-color: var(--danger); color: var(--danger); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.addbar button { font-size: 12.5px; }
+.item { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-top: 10px; background: var(--bg); }
+.item .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.item .head .num { background: var(--accent); color: var(--accent-ink); border-radius: 5px; padding: 0 7px; font-weight: 600; font-size: 12px; }
+.item .head .title { font-weight: 600; flex: 1; }
+.ops { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.op { display: grid; grid-template-columns: 110px 1fr auto; gap: 8px; align-items: end; margin-bottom: 6px; }
+.op .grid { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); }
+.hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.warn { color: var(--danger); font-size: 12px; margin: 6px 0 0; }
+.codewrap { position: sticky; top: 12px; }
+.codebar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.codebar .stat { color: var(--muted); font-size: 12px; margin-left: auto; }
+pre { margin: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 10px; padding: 14px; overflow: auto; max-height: calc(100vh - 150px); font: 12.5px/1.5 Consolas, "Cascadia Mono", monospace; tab-size: 4; }
+pre .c { color: #7f8c98; } pre .k { color: #c792ea; } pre .n { color: #f78c6c; } pre .s { color: #c3e88d; } pre .p { color: #89ddff; }
+details summary { cursor: pointer; color: var(--accent); }
+details ol { margin: 8px 0 0 18px; padding: 0; }
+kbd { background: var(--chip); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+.tabs { display: flex; gap: 6px; }
+.tabs.theme { margin-left: auto; }
+.tabs.theme .tab { padding: 3px 10px; font-size: 12.5px; }
+.tab { border-radius: 999px; padding: 5px 14px; }
+.tab[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.fgroup .ghead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.fgroup .ghead h2 { margin: 0; flex: 1; }
+.fgroup .ghead button { font-size: 12px; padding: 2px 8px; }
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 12px; }
+.checks label { flex-direction: row; align-items: center; gap: 7px; font-size: 13.5px; color: var(--ink); cursor: pointer; }
+.checks input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.checks label.lead { font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+    <h1>GLUT Code Builder</h1>
+    <div class="tabs" role="tablist">
+        <button class="tab" id="tabApp" role="tab">Full app (your GraphicsLab)</button>
+        <button class="tab" id="tabScene" role="tab">Simple scene program</button>
+    </div>
+    <p id="modeHint"></p>
+    <div class="tabs theme" role="group" aria-label="Theme">
+        <button class="tab" data-theme-btn="dark">Dark</button>
+        <button class="tab" data-theme-btn="light">Light</button>
+        <button class="tab" data-theme-btn="auto">Auto</button>
+    </div>
+</header>
+<main>
+<div id="appMode">
+    <section class="card">
+        <h2>Quick picks</h2>
+        <div class="row" id="appPresets"></div>
+        <p class="hint">Tick the features you need. Everything you untick is removed from the code completely: its sidebar buttons, keys, functions and variables.</p>
+    </section>
+    <div id="featureGroups"></div>
+    <section class="card" id="appNotesCard" style="display:none">
+        <h2>Notes about your selection</h2>
+        <ul id="appNotes" class="hint" style="margin:0; padding-left:18px"></ul>
+    </section>
+    <section class="card">
+        <h2>How to run</h2>
+        <ol style="margin:0; padding-left:18px">
+            <li>Copy the code (button on the right).</li>
+            <li>In Visual Studio replace everything in <b>GraphicsLab.cpp</b> with it.</li>
+            <li>Press <kbd>F5</kbd>. The sidebar shows only the features you picked; the console lists the keys.</li>
+        </ol>
+    </section>
+</div>
+<div id="sceneMode">
+    <section class="card">
+        <h2>Program</h2>
+        <div class="grid">
+            <label style="grid-column: 1 / -1">Window title / aim
+                <input id="title" value="Computer Graphics Practical"></label>
+            <label>Width <input id="width" type="number" value="800"></label>
+            <label>Height <input id="height" type="number" value="600"></label>
+            <label>Origin (0,0)
+                <select id="origin"><option value="center">Centre</option><option value="corner">Bottom-left</option></select></label>
+            <label>Background <input id="bg" type="color" value="#ffffff"></label>
+            <label>Axes <select id="axes"><option value="1">Show</option><option value="0">Hide</option></select></label>
+            <label>Grid (50 px) <select id="grid"><option value="0">Hide</option><option value="1">Show</option></select></label>
+            <label style="grid-column: span 2">Input of coordinates
+                <select id="input">
+                    <option value="fixed">Fixed values in the code</option>
+                    <option value="console">Typed in the console (cin)</option>
+                    <option value="mouse">Mouse clicks on the window</option>
+                </select></label>
+        </div>
+        <p class="hint" id="inputHint"></p>
+    </section>
+
+    <section class="card" id="fillCard">
+        <h2>Fill settings</h2>
+        <div class="grid">
+            <label style="grid-column: span 2">Seed fill style
+                <select id="fillEngine">
+                    <option value="stack">Explicit stack (safe for big areas)</option>
+                    <option value="recursive">Recursive (textbook)</option>
+                </select></label>
+            <label style="grid-column: span 2">Read pixel colour with
+                <select id="pixelRead">
+                    <option value="mirror">Pixel copy array (reliable)</option>
+                    <option value="glread">glReadPixels (textbook getpixel)</option>
+                </select></label>
+            <label style="grid-column: span 2">Fill animation
+                <select id="flushEvery">
+                    <option value="20">Slow (flush every 20 px)</option>
+                    <option value="150" selected>Medium (every 150 px)</option>
+                    <option value="1000">Fast (every 1000 px)</option>
+                    <option value="100000000">No animation</option>
+                </select></label>
+        </div>
+        <p class="hint">Boundary fill stops at the <b>border colour</b> you give it; flood fill replaces the colour found at the seed. 8-connected fills leak through diagonal steps of slanted edges (that is the classic textbook result).</p>
+    </section>
+
+    <section class="card">
+        <h2>Scene</h2>
+        <div class="row">
+            <select id="preset" style="flex:1; min-width: 200px"></select>
+            <button id="loadPreset">Load preset</button>
+            <button id="clearItems" class="danger">Clear</button>
+        </div>
+        <div class="row addbar" style="margin-top:10px">
+            <span class="hint" style="margin:0">Add:</span>
+            <button data-add="line">Line</button>
+            <button data-add="circle">Circle</button>
+            <button data-add="arc">Arc</button>
+            <button data-add="ellipse">Ellipse</button>
+            <button data-add="rect">Rectangle</button>
+            <button data-add="triangle">Triangle</button>
+            <button data-add="polygon">Polygon</button>
+            <button data-add="regpoly">Regular polygon</button>
+            <button data-add="fill">Seed fill</button>
+            <button data-add="scanfill">Scan-line fill</button>
+            <button data-add="transform">Transformation</button>
+        </div>
+        <div id="items"></div>
+        <p class="hint" id="emptyHint">No items yet: load a preset or add something.</p>
+    </section>
+
+    <section class="card">
+        <h2>How to run</h2>
+        <details open>
+            <summary>Visual Studio (your existing project)</summary>
+            <ol>
+                <li>Copy the code (button on the right).</li>
+                <li>In your GraphicsLab project, replace everything in <b>GraphicsLab.cpp</b> with it (or add a new .cpp and exclude the others from the build).</li>
+                <li>Press <kbd>F5</kbd>. Keep the window uncovered while a fill is running.</li>
+                <li>Mouse mode: follow the window title; <kbd>R</kbd> restarts, <kbd>Esc</kbd> quits.</li>
+            </ol>
+        </details>
+        <details>
+            <summary>Save / load this setup</summary>
+            <div class="row" style="margin-top:8px">
+                <button id="exportCfg">Download setup (.json)</button>
+                <label class="row" style="flex-direction:row; gap:6px"><input type="file" id="importCfg" accept=".json"></label>
+            </div>
+            <p class="hint">Your current setup is also remembered in this browser automatically.</p>
+        </details>
+    </section>
+</div>
+
+<div class="codewrap">
+    <div class="codebar">
+        <button class="primary" id="copy">Copy code</button>
+        <button id="download">Download .cpp</button>
+        <span class="stat" id="stat"></span>
+    </div>
+    <pre id="code"></pre>
+</div>
+</main>
+
+<script>/*GEN*/</script>
+<script>/*PRESETS*/</script>
+<script>/*STRIP*/</script>
+<script>/*MASTER*/</script>
+<script>
+(function () {
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+    const G = window.GlutGen;
+    const PRESETS = window.GlutPresets;
+
+    const DEFAULTS = {
+        line: { x1: -150, y1: -100, x2: 200, y2: 120, algo: "bres", color: "#000000", thick: 1, style: "solid" },
+        circle: { cx: 0, cy: 0, r: 100, color: "#000000", thick: 1, style: "solid" },
+        arc: { cx: 0, cy: 0, r: 100, a0: 0, a1: 180, color: "#000000", thick: 1, style: "solid" },
+        ellipse: { cx: 0, cy: 0, rx: 150, ry: 80, color: "#000000", thick: 1, style: "solid" },
+        rect: { x1: -100, y1: -60, x2: 100, y2: 60, algo: "bres", color: "#000000", thick: 1, style: "solid" },
+        triangle: { x1: -100, y1: -60, x2: 100, y2: -60, x3: 0, y3: 100, algo: "bres", color: "#000000", thick: 1, style: "solid" },
+        polygon: { pts: "0 120, 110 40, 70 -100, -70 -100, -110 40", algo: "bres", color: "#000000", thick: 1, style: "solid" },
+        regpoly: { cx: 0, cy: 0, r: 100, n: 6, rot: 90, algo: "bres", color: "#000000", thick: 1, style: "solid" },
+        fill: { x: 0, y: 0, fillAlgo: "b4", fillColor: "#e01b24", borderColor: "#000000" },
+        scanfill: { ref: 1, fillColor: "#e01b24" },
+        transform: { ref: 1, color: "#e01b24", ops: [{ type: "translate", tx: 100, ty: 50 }] },
+    };
+    const OP_DEFAULTS = {
+        translate: { tx: 100, ty: 50 },
+        scale: { sx: 2, sy: 2, px: 0, py: 0 },
+        rotate: { deg: 45, px: 0, py: 0 },
+        reflect: { axis: "x", x1: 0, y1: 0, x2: 100, y2: 100 },
+        shear: { shx: 1, shy: 0, px: 0, py: 0 },
+    };
+    const ALGOS = [["bres", "Bresenham"], ["dda", "DDA"], ["sdda", "Symmetric DDA"]];
+    const STYLES = [["solid", "Solid"], ["dotted", "Dotted"], ["dashed", "Dashed"], ["dashdot", "Dash-dot"], ["longdash", "Long dash"]];
+    const FILLS = [["b4", "Boundary fill 4"], ["b8", "Boundary fill 8"], ["f4", "Flood fill 4"], ["f8", "Flood fill 8"]];
+    const AXES = [["x", "x-axis"], ["y", "y-axis"], ["origin", "origin"], ["yx", "line y = x"], ["ynx", "line y = -x"], ["line", "line through 2 points"]];
+
+    /* number fields per item type: [key, label] */
+    const FIELDS = {
+        line: [["x1", "x1"], ["y1", "y1"], ["x2", "x2"], ["y2", "y2"]],
+        circle: [["cx", "centre x"], ["cy", "centre y"], ["r", "radius"]],
+        arc: [["cx", "centre x"], ["cy", "centre y"], ["r", "radius"], ["a0", "start deg"], ["a1", "end deg"]],
+        ellipse: [["cx", "centre x"], ["cy", "centre y"], ["rx", "rx"], ["ry", "ry"]],
+        rect: [["x1", "corner x1"], ["y1", "corner y1"], ["x2", "corner x2"], ["y2", "corner y2"]],
+        triangle: [["x1", "x1"], ["y1", "y1"], ["x2", "x2"], ["y2", "y2"], ["x3", "x3"], ["y3", "y3"]],
+        regpoly: [["cx", "centre x"], ["cy", "centre y"], ["r", "radius"], ["n", "sides"], ["rot", "rotation deg"]],
+        fill: [["x", "seed x"], ["y", "seed y"]],
+    };
+    const OP_FIELDS = {
+        translate: [["tx", "tx"], ["ty", "ty"]],
+        scale: [["sx", "sx"], ["sy", "sy"], ["px", "pivot x"], ["py", "pivot y"]],
+        rotate: [["deg", "angle deg"], ["px", "pivot x"], ["py", "pivot y"]],
+        shear: [["shx", "shx"], ["shy", "shy"], ["px", "pivot x"], ["py", "pivot y"]],
+        reflect: [],
+    };
+
+    let state = loadState() || {
+        title: "Computer Graphics Practical", width: 800, height: 600, origin: "center", bg: "#ffffff",
+        axes: true, grid: false, input: "fixed", fillEngine: "stack", pixelRead: "mirror", flushEvery: 150,
+        items: JSON.parse(JSON.stringify(PRESETS[5].items)),
+    };
+
+    function loadState() {
+        try { const s = localStorage.getItem("glutCodeBuilder"); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+    }
+    function saveState() {
+        try { localStorage.setItem("glutCodeBuilder", JSON.stringify(state)); } catch (e) { /* private mode */ }
+    }
+
+    /* ---------- small DOM helpers ---------- */
+    function el(tag, attrs, children) {
+        const e = document.createElement(tag);
+        if (attrs) for (const k in attrs) {
+            if (k === "class") e.className = attrs[k];
+            else if (k === "text") e.textContent = attrs[k];
+            else if (k.startsWith("on")) e.addEventListener(k.slice(2), attrs[k]);
+            else e.setAttribute(k, attrs[k]);
+        }
+        (children || []).forEach(c => c && e.appendChild(typeof c === "string" ? document.createTextNode(c) : c));
+        return e;
+    }
+    function selectBox(options, value, onchange) {
+        const s = el("select", { onchange: (ev) => onchange(ev.target.value) },
+            options.map(([v, t]) => el("option", { value: v, text: t })));
+        s.value = value;
+        return s;
+    }
+    function field(label, input) { return el("label", null, [label, input]); }
+    function numInput(obj, key, rerenderOnChange) {
+        return el("input", {
+            type: "number", value: obj[key] === undefined ? "" : obj[key], step: "any",
+            oninput: (ev) => { obj[key] = ev.target.value === "" ? 0 : Number(ev.target.value); update(); if (rerenderOnChange) renderItems(); },
+        });
+    }
+    function colorInput(obj, key) {
+        return el("input", { type: "color", value: obj[key] || "#000000", oninput: (ev) => { obj[key] = ev.target.value; update(); } });
+    }
+
+    /* ---------- items ---------- */
+    function refOptions(i, allowLine) {
+        const opts = [];
+        state.items.forEach((it, j) => {
+            if (j >= i) return;
+            if (G.isPoly(it.type) || (allowLine && it.type === "line"))
+                opts.push([String(j + 1), "#" + (j + 1) + " " + G.TYPE_LABEL[it.type]]);
+        });
+        return opts;
+    }
+
+    function renderItems() {
+        const box = $("items");
+        box.innerHTML = "";
+        $("emptyHint").style.display = state.items.length ? "none" : "";
+        const mouse = state.input === "mouse";
+        state.items.forEach((it, i) => {
+            const head = el("div", { class: "head" }, [
+                el("span", { class: "num", text: String(i + 1) }),
+                el("span", { class: "title", text: G.TYPE_LABEL[it.type] }),
+                el("button", { class: "icon", title: "Move up", text: "\u2191", onclick: () => move(i, -1) }),
+                el("button", { class: "icon", title: "Move down", text: "\u2193", onclick: () => move(i, 1) }),
+                el("button", { class: "icon", title: "Duplicate", text: "\u29C9", onclick: () => duplicate(i) }),
+                el("button", { class: "icon danger", title: "Remove", text: "\u2715", onclick: () => remove(i) }),
+            ]);
+            const grid = el("div", { class: "grid" });
+            (FIELDS[it.type] || []).forEach(([k, label]) => grid.appendChild(field(label, numInput(it, k, it.type === "regpoly" && k === "n"))));
+
+            if (it.type === "polygon") {
+                grid.appendChild(el("label", { style: "grid-column: 1 / -1" }, ["vertices: x y, x y, ...",
+                    el("textarea", { oninput: (ev) => { it.pts = ev.target.value; update(); } }, [it.pts || ""])]));
+            }
+            if (it.type === "line" || G.isPoly(it.type))
+                grid.appendChild(field("line algorithm", selectBox(ALGOS, it.algo || "bres", v => { it.algo = v; update(); })));
+            if (["line", "circle", "arc", "ellipse", "rect", "triangle", "polygon", "regpoly"].indexOf(it.type) >= 0) {
+                grid.appendChild(field("colour", colorInput(it, "color")));
+                grid.appendChild(field("thickness", selectBox([1, 2, 3, 4, 5, 7].map(n => [String(n), n + " px"]), String(it.thick || 1), v => { it.thick = Number(v); update(); })));
+                grid.appendChild(field("style", selectBox(STYLES, it.style || "solid", v => { it.style = v; update(); })));
+            }
+            if (it.type === "fill") {
+                grid.appendChild(field("algorithm", selectBox(FILLS, it.fillAlgo || "b4", v => { it.fillAlgo = v; renderItems(); update(); })));
+                grid.appendChild(field("fill colour", colorInput(it, "fillColor")));
+                if ((it.fillAlgo || "b4")[0] === "b") grid.appendChild(field("border colour", colorInput(it, "borderColor")));
+            }
+            const notes = [];
+            if (it.type === "scanfill" || it.type === "transform") {
+                const opts = refOptions(i, it.type === "transform");
+                if (!opts.length) notes.push(el("p", { class: "warn", text: "Add a " + (it.type === "transform" ? "line or polygon" : "polygon (rectangle, triangle, polygon, regular polygon)") + " above this item first." }));
+                else {
+                    if (!opts.some(o => o[0] === String(it.ref))) it.ref = Number(opts[opts.length - 1][0]);
+                    grid.appendChild(field(it.type === "transform" ? "apply to item" : "polygon to fill",
+                        selectBox(opts, String(it.ref), v => { it.ref = Number(v); update(); })));
+                }
+                grid.appendChild(field(it.type === "transform" ? "result colour" : "fill colour", colorInput(it, it.type === "transform" ? "color" : "fillColor")));
+            }
+            if (mouse && ["fill", "scanfill", "transform"].indexOf(it.type) < 0)
+                notes.push(el("p", { class: "hint", text: "Mouse mode: the points of this shape come from clicks (the numbers above are not used for points)." }));
+            if (mouse && it.type === "fill")
+                notes.push(el("p", { class: "hint", text: "Mouse mode: the seed comes from a click." }));
+            if (it.type === "fill" && it.fillAlgo === "b8")
+                notes.push(el("p", { class: "hint", text: "Boundary fill 8 leaks out of shapes with slanted edges; it is fine for axis-aligned rectangles." }));
+
+            const card = el("div", { class: "item" }, [head, grid].concat(notes));
+            if (it.type === "transform") card.appendChild(renderOps(it));
+            box.appendChild(card);
+        });
+    }
+
+    function renderOps(it) {
+        const wrap = el("div", { class: "ops" });
+        wrap.appendChild(el("p", { class: "hint", style: "margin:0 0 6px", text: "Applied top to bottom (composite matrix M = last \u00d7 ... \u00d7 first). Pivot 0,0 = about the origin." }));
+        (it.ops || (it.ops = [])).forEach((op, j) => {
+            const g = el("div", { class: "grid" });
+            (OP_FIELDS[op.type] || []).forEach(([k, label]) => g.appendChild(field(label, numInput(op, k))));
+            if (op.type === "reflect") {
+                g.appendChild(field("about", selectBox(AXES, op.axis || "x", v => { op.axis = v; renderItems(); update(); })));
+                if (op.axis === "line")[["x1", "x1"], ["y1", "y1"], ["x2", "x2"], ["y2", "y2"]].forEach(([k, l]) => g.appendChild(field(l, numInput(op, k))));
+            }
+            const typeSel = selectBox(Object.keys(OP_DEFAULTS).map(t => [t, t[0].toUpperCase() + t.slice(1)]), op.type, v => {
+                it.ops[j] = Object.assign({ type: v }, JSON.parse(JSON.stringify(OP_DEFAULTS[v])));
+                renderItems(); update();
+            });
+            wrap.appendChild(el("div", { class: "op" }, [field("step " + (j + 1), typeSel), g,
+                el("button", { class: "icon danger", title: "Remove step", text: "\u2715", onclick: () => { it.ops.splice(j, 1); renderItems(); update(); } })]));
+        });
+        wrap.appendChild(el("button", { text: "+ add step", onclick: () => { it.ops.push(Object.assign({ type: "rotate" }, OP_DEFAULTS.rotate)); renderItems(); update(); } }));
+        return wrap;
+    }
+
+    function addItem(type) {
+        const it = Object.assign({ type }, JSON.parse(JSON.stringify(DEFAULTS[type])));
+        if (type === "scanfill" || type === "transform") {
+            const opts = refOptions(state.items.length, type === "transform");
+            if (opts.length) it.ref = Number(opts[opts.length - 1][0]);
+        }
+        state.items.push(it);
+        renderItems(); update();
+        const cards = document.querySelectorAll("#items .item");
+        if (cards.length) cards[cards.length - 1].scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    /* keep scan-fill / transform references pointing at the same item */
+    function remapRefs(map) {
+        state.items.forEach(it => {
+            if (it.type === "scanfill" || it.type === "transform") {
+                const m = map(Number(it.ref) - 1);
+                it.ref = m < 0 ? 0 : m + 1;
+            }
+        });
+    }
+    function move(i, d) {
+        const j = i + d;
+        if (j < 0 || j >= state.items.length) return;
+        const a = state.items[i]; state.items[i] = state.items[j]; state.items[j] = a;
+        remapRefs(r => r === i ? j : r === j ? i : r);
+        renderItems(); update();
+    }
+    function duplicate(i) {
+        state.items.splice(i + 1, 0, JSON.parse(JSON.stringify(state.items[i])));
+        remapRefs(r => r > i ? r + 1 : r);
+        renderItems(); update();
+    }
+    function remove(i) {
+        state.items.splice(i, 1);
+        remapRefs(r => r === i ? -1 : r > i ? r - 1 : r);
+        renderItems(); update();
+    }
+
+    /* ---------- settings ---------- */
+    const SETTINGS = ["title", "width", "height", "origin", "bg", "axes", "grid", "input", "fillEngine", "pixelRead", "flushEvery"];
+    function readSettings() {
+        state.title = $("title").value;
+        state.width = Number($("width").value) || 800;
+        state.height = Number($("height").value) || 600;
+        state.origin = $("origin").value;
+        state.bg = $("bg").value;
+        state.axes = $("axes").value === "1";
+        state.grid = $("grid").value === "1";
+        state.input = $("input").value;
+        state.fillEngine = $("fillEngine").value;
+        state.pixelRead = $("pixelRead").value;
+        state.flushEvery = Number($("flushEvery").value);
+    }
+    function writeSettings() {
+        $("title").value = state.title || "";
+        $("width").value = state.width; $("height").value = state.height;
+        $("origin").value = state.origin; $("bg").value = state.bg || "#ffffff";
+        $("axes").value = state.axes === false ? "0" : "1"; $("grid").value = state.grid ? "1" : "0";
+        $("input").value = state.input || "fixed";
+        $("fillEngine").value = state.fillEngine || "stack"; $("pixelRead").value = state.pixelRead || "mirror";
+        $("flushEvery").value = String(state.flushEvery || 150);
+    }
+    const INPUT_HINT = {
+        fixed: "All coordinates are written into the code.",
+        console: "The program asks for every coordinate (and transformation value) in the console before the window opens.",
+        mouse: "Each shape's points are clicked on the window, in item order; the window title says what to click next.",
+    };
+
+    /* ---------- code output ---------- */
+    let lastCode = "";
+    function highlight(src) {
+        const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const re = /(\/\*[\s\S]*?\*\/|\/\/[^\n]*)|("(?:\\.|[^"\\])*")|(^#\w+)|\b(void|int|float|double|bool|const|char|for|while|if|else|return|static|typedef|true|false|using|namespace|unsigned)\b|\b(\d+(?:\.\d+)?f?)\b/gm;
+        let out = "", last = 0, m;
+        while ((m = re.exec(src))) {
+            out += esc(src.slice(last, m.index));
+            const cls = m[1] ? "c" : m[2] ? "s" : m[3] ? "p" : m[4] ? "k" : "n";
+            out += '<span class="' + cls + '">' + esc(m[0]) + "</span>";
+            last = re.lastIndex;
+        }
+        return out + esc(src.slice(last));
+    }
+    /* ---------- full app: feature picker ---------- */
+    const S = window.AppStrip;
+    const LEADS = { F_FILL: ["F_B4", "F_B8", "F_FLOOD", "F_SCAN"],
+                    F_TRANSFORM: ["F_TRANSLATE", "F_SCALE", "F_ROTATE", "F_REFLECT", "F_SHEAR", "F_COMPOSITE"] };
+    const allOn = () => { const o = {}; S.FEATURES.forEach(([k]) => o[k] = true); return o; };
+    const only = (ks) => { const o = {}; S.FEATURES.forEach(([k]) => o[k] = ks.indexOf(k) >= 0); return o; };
+    const APP_PRESETS = [
+        ["Everything", allOn()],
+        ["Lines only", only(["F_LINE", "F_BRES", "F_SDDA", "F_DDA", "F_COLOUR", "F_STYLE", "F_THICK", "F_MARKERS", "F_TYPE", "F_SNAP", "F_UNDO", "F_ZOOM", "F_VIEWOPTS"])],
+        ["Circle + ellipse", only(["F_CIRCLE", "F_ELLIPSE", "F_COLOUR", "F_STYLE", "F_THICK", "F_MARKERS", "F_TYPE", "F_UNDO", "F_ZOOM", "F_VIEWOPTS", "F_ANIM"])],
+        ["Polygons + fills", only(["F_RECT", "F_SQUARE", "F_TRIANGLE", "F_DIAMOND", "F_POLYGON", "F_STAR", "F_FREEPOLY", "F_BRES", "F_DDA",
+            "F_FILL", "F_B4", "F_B8", "F_FLOOD", "F_SCAN", "F_ANIM", "F_UNDO", "F_ZOOM", "F_COLOUR", "F_VIEWOPTS"])],
+        ["Transformations", only(["F_LINE", "F_RECT", "F_TRIANGLE", "F_POLYGON", "F_BRES", "F_TRANSFORM", "F_TRANSLATE", "F_SCALE",
+            "F_ROTATE", "F_REFLECT", "F_SHEAR", "F_COMPOSITE", "F_SELECT", "F_TYPE", "F_UNDO", "F_ZOOM", "F_VIEWOPTS"])],
+        ["Bare minimum", only(["F_LINE", "F_BRES"])],
+    ];
+    if (!state.appSel) state.appSel = allOn();
+    if (!state.mode) state.mode = "app";
+
+    const checkboxes = {};
+    function renderFeatures() {
+        const box = $("featureGroups");
+        box.innerHTML = "";
+        const groups = [];
+        S.FEATURES.forEach(([k, label, group]) => {
+            let g = groups.find(x => x.name === group);
+            if (!g) groups.push(g = { name: group, items: [] });
+            g.items.push([k, label]);
+        });
+        groups.forEach(g => {
+            const head = el("div", { class: "ghead" }, [
+                el("h2", { text: g.name }),
+                el("button", { text: "All", onclick: () => { g.items.forEach(([k]) => state.appSel[k] = true); syncChecks(); update(); } }),
+                el("button", { text: "None", onclick: () => { g.items.forEach(([k]) => state.appSel[k] = false); syncChecks(); update(); } }),
+            ]);
+            const checks = el("div", { class: "checks" });
+            g.items.forEach(([k, label]) => {
+                const cb = el("input", { type: "checkbox", onchange: (ev) => { state.appSel[k] = ev.target.checked; syncChecks(); update(); } });
+                checkboxes[k] = cb;
+                checks.appendChild(el("label", { class: LEADS[k] ? "lead" : "" }, [cb, label]));
+            });
+            box.appendChild(el("section", { class: "card fgroup" }, [head, checks]));
+        });
+        syncChecks();
+    }
+    function syncChecks() {
+        S.FEATURES.forEach(([k]) => { checkboxes[k].checked = !!state.appSel[k]; checkboxes[k].disabled = false; });
+        Object.keys(LEADS).forEach(lead => LEADS[lead].forEach(k => {
+            checkboxes[k].disabled = !state.appSel[lead];
+            checkboxes[k].parentElement.style.opacity = state.appSel[lead] ? "" : "0.45";
+        }));
+    }
+    APP_PRESETS.forEach(([name, sel]) => $("appPresets").appendChild(el("button", {
+        text: name, onclick: () => { state.appSel = JSON.parse(JSON.stringify(sel)); syncChecks(); update(); },
+    })));
+
+    function setMode(m) {
+        state.mode = m;
+        $("appMode").style.display = m === "app" ? "" : "none";
+        $("sceneMode").style.display = m === "app" ? "none" : "";
+        $("tabApp").setAttribute("aria-selected", m === "app");
+        $("tabScene").setAttribute("aria-selected", m !== "app");
+        $("modeHint").textContent = m === "app"
+            ? "Your interactive GraphicsLab app (sidebar, mouse drawing, zoom...) with only the features you tick."
+            : "A short program that draws a fixed scene (or asks for coordinates) - good for single-algorithm questions.";
+        update();
+    }
+    /* theme switch */
+    function applyTheme(t) {
+        if (t === "auto") document.documentElement.removeAttribute("data-theme");
+        else document.documentElement.setAttribute("data-theme", t);
+        document.querySelectorAll("[data-theme-btn]").forEach(b =>
+            b.setAttribute("aria-selected", b.getAttribute("data-theme-btn") === t));
+        try { localStorage.setItem("glutTheme", t); } catch (e) { /* storage blocked */ }
+    }
+    let savedTheme = "dark";
+    try { savedTheme = localStorage.getItem("glutTheme") || "dark"; } catch (e) { }
+    document.querySelectorAll("[data-theme-btn]").forEach(b =>
+        b.onclick = () => applyTheme(b.getAttribute("data-theme-btn")));
+    applyTheme(savedTheme);
+
+    $("tabApp").onclick = () => setMode("app");
+    $("tabScene").onclick = () => setMode("scene");
+
+    function update() {
+        readSettings();
+        if (state.mode === "app") {
+            const r = S.resolve(state.appSel);
+            try { lastCode = S.strip(window.APP_MASTER, r.flags); }
+            catch (e) { lastCode = "// generator error: " + e.message + "\n"; }
+            $("appNotesCard").style.display = r.notes.length ? "" : "none";
+            $("appNotes").innerHTML = "";
+            r.notes.forEach(n => $("appNotes").appendChild(el("li", { text: n })));
+        }
+        else {
+            $("inputHint").textContent = INPUT_HINT[state.input];
+            $("fillCard").style.display = state.items.some(it => it.type === "fill" || it.type === "scanfill") ? "" : "none";
+            lastCode = G.generate(state);
+        }
+        $("code").innerHTML = highlight(lastCode);
+        $("stat").textContent = lastCode.split("\n").length + " lines";
+        saveState();
+    }
+
+    /* ---------- wiring ---------- */
+    PRESETS.forEach((p, i) => $("preset").appendChild(el("option", { value: String(i), text: p.name })));
+    $("loadPreset").onclick = () => {
+        const p = PRESETS[Number($("preset").value)];
+        state.items = JSON.parse(JSON.stringify(p.items));
+        $("title").value = p.name;
+        renderItems(); update();
+    };
+    $("clearItems").onclick = () => { state.items = []; renderItems(); update(); };
+    document.querySelectorAll("[data-add]").forEach(b => b.onclick = () => addItem(b.getAttribute("data-add")));
+    SETTINGS.forEach(id => $(id).addEventListener("input", () => { update(); if (id === "input") renderItems(); }));
+    SETTINGS.forEach(id => $(id).addEventListener("change", () => { update(); if (id === "input") renderItems(); }));
+
+    $("copy").onclick = async () => {
+        try { await navigator.clipboard.writeText(lastCode); }
+        catch (e) {
+            const ta = el("textarea"); ta.value = lastCode; document.body.appendChild(ta); ta.select();
+            document.execCommand("copy"); ta.remove();
+        }
+        $("copy").textContent = "Copied!";
+        setTimeout(() => $("copy").textContent = "Copy code", 1200);
+    };
+    function download(name, text, type) {
+        const a = el("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name });
+        document.body.appendChild(a); a.click(); a.remove();
+    }
+    $("download").onclick = () => download("GraphicsLab.cpp", lastCode, "text/plain");
+    $("exportCfg").onclick = () => download("glut-setup.json", JSON.stringify(state, null, 2), "application/json");
+    $("importCfg").onchange = (ev) => {
+        const f = ev.target.files[0]; if (!f) return;
+        f.text().then(t => {
+            try {
+                state = JSON.parse(t);
+                if (!state.appSel) state.appSel = allOn();
+                if (!state.items) state.items = [];
+                writeSettings(); renderItems(); syncChecks(); setMode(state.mode || "app");
+            }
+            catch (e) { alert("That file is not a saved setup."); }
+        });
+    };
+
+    writeSettings();
+    renderItems();
+    renderFeatures();
+    setMode(state.mode);
+})();
+</script>
+</body>
+</html>
